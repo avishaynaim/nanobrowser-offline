@@ -15,7 +15,12 @@ let filterText='', filterMethod='', filterType='', filterLevel='', filterConText
 let throttlePreset = 'none', consoleGrouped = false, expandedGroups = new Set();
 let replayResult = null, selectedSessions = new Set();
 let injectedHeaders = [], overrideRules = [];
-let editingCookie = null; // { name, domain } of cookie being edited, or null for new
+let editingCookie = null;
+let baselineSession = null, networkPaused = false;
+let alertRules = [], budgetRules = {}, filterPresets = [], annotations = {}, requestTags = {};
+let historyData = [], dedupMode = false, annotatingId = null;
+let fontScale = 12, isLightTheme = false;
+const TAG_COLORS = { red:'#f44747', orange:'#ce9178', yellow:'#dcdcaa', green:'#4ec9b0', blue:'#569cd6', purple:'#c586c0', none:'' };
 let settings = {
   apiUrl: 'http://localhost:11434/v1', model: '', apiKey: '',
   systemPrompt: 'You are an AI assistant integrated into a browser dev tool. Help developers understand network requests, console errors, security issues, and page behavior. Be concise, technical, and precise.',
@@ -26,11 +31,34 @@ async function init() {
   const p = new URLSearchParams(location.search);
   targetTabId = parseInt(p.get('tabId')) || null;
   await loadSettings(); await tryAutoConfig();
+  // Load persisted annotations, tags, budget, alert rules, presets, chat history
+  const stored = await chrome.storage.local.get(['inspector-annotations','inspector-tags','inspector-budget','inspector-alert-rules','inspector-filter-presets','inspector-chat-history-'+targetTabId]);
+  annotations = stored['inspector-annotations'] || {};
+  requestTags = stored['inspector-tags'] || {};
+  budgetRules = stored['inspector-budget'] || {};
+  alertRules = stored['inspector-alert-rules'] || [];
+  filterPresets = stored['inspector-filter-presets'] || [];
+  if (stored['inspector-chat-history-'+targetTabId]) chatHistory = stored['inspector-chat-history-'+targetTabId];
   if (targetTabId) {
     const tab = await chrome.tabs.get(targetTabId).catch(() => null);
     if (tab) document.getElementById('tab-url').textContent = tab.url || 'Unknown';
   } else { document.getElementById('tab-url').textContent = 'No tab — open from popup'; }
   setupUI();
+  // Global keyboard shortcuts
+  document.addEventListener('keydown', e => {
+    if (e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'||e.target.isContentEditable) return;
+    if (document.querySelector('.modal.open')) { if (e.key==='Escape') document.querySelectorAll('.modal.open').forEach(m=>m.classList.remove('open')); return; }
+    const tabNames = ['network','console','websockets','storage','repl','timeline','performance','security','chat'];
+    if (e.key>='1'&&e.key<='9'&&!e.ctrlKey) { const t=tabNames[parseInt(e.key)-1]; if(t) switchTab(t); return; }
+    if (e.key==='/'||e.key==='f'||e.key==='F') { e.preventDefault(); document.getElementById('global-search').focus(); return; }
+    if ((e.key==='s'||e.key==='S')&&!e.ctrlKey) { toggleCapture(); return; }
+    if ((e.key==='c'||e.key==='C')&&!e.ctrlKey) { clearAll(); return; }
+    if ((e.key==='?')||e.key==='h'||e.key==='H') { openModal('shortcuts-modal'); return; }
+    if (e.ctrlKey&&e.key==='e') { e.preventDefault(); exportHAR(); return; }
+    if (e.ctrlKey&&e.key==='b') { e.preventDefault(); openCompareModal(); return; }
+    if (e.ctrlKey&&e.key==='r') { e.preventDefault(); const sel=[...selectedRequests]; if(sel.length){const r=netRequests.find(x=>x.id===sel[0]);if(r)openReplayModal(r);} return; }
+    if (e.key==='Escape') { selectedRequests.clear(); expandedRow=null; renderNetwork(); updateSelCount(); }
+  });
 }
 
 async function loadSettings() {
@@ -78,6 +106,15 @@ function setupUI() {
   toolAction('tool-json', exportJSON);
   toolAction('tool-block', openBlockModal);
   toolAction('tool-mocks', openMocksModal);
+  toolAction('tool-compare', openCompareModal);
+  toolAction('tool-postman', exportPostman);
+  toolAction('tool-budget', openBudgetModal);
+  toolAction('tool-alerts', openAlertsModal);
+  toolAction('tool-presets', openPresetsModal);
+  toolAction('tool-history', openHistoryModal);
+  toolAction('tool-multitab', openMultiTabModal);
+  toolAction('tool-clipboard', openClipboardModal);
+  toolAction('tool-beacons', openBeaconModal);
   toolAction('tool-overrides', openOverridesModal);
   toolAction('tool-inject', openInjectModal);
   toolAction('tool-save', saveSession);
@@ -141,6 +178,36 @@ function setupUI() {
   // Timeline
   document.getElementById('tl-refresh-btn').addEventListener('click', renderTimeline);
 
+  // New toolbar buttons
+  document.getElementById('pause-btn').addEventListener('click', toggleNetPause);
+  document.getElementById('baseline-btn').addEventListener('click', pinBaseline);
+  document.getElementById('theme-btn').addEventListener('click', toggleTheme);
+  document.getElementById('font-inc').addEventListener('click', () => changeFontSize(1));
+  document.getElementById('font-dec').addEventListener('click', () => changeFontSize(-1));
+  document.getElementById('shortcuts-btn').addEventListener('click', () => openModal('shortcuts-modal'));
+  document.getElementById('dedup-btn').addEventListener('click', () => { dedupMode = !dedupMode; document.getElementById('dedup-btn').classList.toggle('on', dedupMode); renderNetwork(); });
+
+  // New modals
+  document.getElementById('cmp-close').addEventListener('click', () => closeModal('compare-modal'));
+  document.getElementById('bdg-cancel').addEventListener('click', () => closeModal('budget-modal'));
+  document.getElementById('bdg-save').addEventListener('click', saveBudget);
+  document.getElementById('alr-cancel').addEventListener('click', () => closeModal('alerts-modal'));
+  document.getElementById('alr-add-btn').addEventListener('click', addAlertRule);
+  document.getElementById('pst-close').addEventListener('click', () => closeModal('presets-modal'));
+  document.getElementById('pst-save-btn').addEventListener('click', saveFilterPreset);
+  document.getElementById('hist-close').addEventListener('click', () => closeModal('history-modal'));
+  document.getElementById('mt-close').addEventListener('click', () => closeModal('multitab-modal'));
+  document.getElementById('sc-close').addEventListener('click', () => closeModal('shortcuts-modal'));
+  document.getElementById('clip-close').addEventListener('click', () => closeModal('clipboard-modal'));
+  document.getElementById('clip-refresh').addEventListener('click', openClipboardModal);
+  document.getElementById('beacon-close').addEventListener('click', () => closeModal('beacon-modal'));
+  document.getElementById('beacon-refresh').addEventListener('click', openBeaconModal);
+  document.getElementById('wss-close').addEventListener('click', () => closeModal('ws-send-modal'));
+  document.getElementById('wss-send').addEventListener('click', sendWsMessage);
+  document.getElementById('ann-cancel').addEventListener('click', () => closeModal('annotation-modal'));
+  document.getElementById('ann-save').addEventListener('click', saveAnnotation);
+  document.getElementById('ann-del').addEventListener('click', deleteAnnotation);
+
   // Replay modal
   document.getElementById('rp-close').addEventListener('click', () => closeModal('replay-modal'));
   document.getElementById('rp-send').addEventListener('click', runReplay);
@@ -185,6 +252,10 @@ function setupUI() {
   // Performance
   document.getElementById('perf-scan-btn').addEventListener('click', () => { const ctx = buildPerfContext(); if (ctx) { chatContext.push({ type: 'perf', data: { text: ctx } }); renderCtxBar(); switchTab('chat'); } });
 
+  // Performance extras
+  document.getElementById('dns-btn').addEventListener('click', analyzeDnsPrefetch);
+  document.getElementById('retry-btn').addEventListener('click', retryAllErrors);
+
   // Security
   document.getElementById('sec-run-btn').addEventListener('click', runSecurityAudit);
   document.getElementById('sec-ask-btn').addEventListener('click', () => { const ctx = buildSecContext(); if (ctx) { chatContext.push({ type: 'security', data: { text: ctx } }); renderCtxBar(); switchTab('chat'); } });
@@ -227,6 +298,9 @@ async function pollData() {
   renderNetwork(); renderConsole(); renderWebSockets(); updateBadges(); updatePerfLive(); updateSecLive();
   updateSparkline();
   if (document.getElementById('panel-timeline').classList.contains('active')) renderTimeline();
+  historyData.push({ ts: Date.now(), count: netRequests.length });
+  if (historyData.length > 120) historyData.shift();
+  checkAlerts(); checkBudget();
 }
 async function clearAll() {
   if (targetTabId) await chrome.runtime.sendMessage({ type: 'INS_CLEAR', tabId: targetTabId });
@@ -1031,29 +1105,46 @@ function renderNetwork() {
     const ms = r.ttfb ?? (r.doneAt&&r.ts ? r.doneAt-r.ts : null);
     const pct = ms!=null ? Math.max(2,Math.round(ms/maxMs*100)) : 0;
     const timeCell = ms!=null ? `<div class="wf-w"><div class="wf-bg"><div class="wf-bar" style="width:${pct}%"></div></div><span class="wf-ms">${ms}ms</span></div>` : '<span class="wf-ms">…</span>';
-    rows.push(`<tr data-id="${esc(r.id)}" class="${chk?'sel':''} ${exp?'expanded':''}">
+    const dupMap = dedupMode ? getDuplicates() : null;
+    const dupKey = r.method + '|' + r.url;
+    const dupCnt = dupMap ? dupMap.get(dupKey) : 0;
+    const tag = requestTags[r.id];
+    const hasAnn = !!annotations[r.id];
+    const streaming = isStreaming(r);
+    rows.push(`<tr data-id="${esc(r.id)}" class="${chk?'sel':''} ${exp?'expanded':''}" ${dupCnt>1&&dedupMode?'style="background:rgba(255,140,0,.06)"':''}>
       <td class="chk"><input type="checkbox" ${chk?'checked':''} data-id="${esc(r.id)}"></td>
-      <td class="met ${mc}">${esc(r.method||'')}</td>
+      <td class="met ${mc}">
+        ${tag?`<div class="tag-dot" data-tid="${esc(r.id)}" style="background:${TAG_COLORS[tag]};display:inline-block;margin-right:3px"></div>`:`<div class="tag-dot" data-tid="${esc(r.id)}" style="background:var(--surface3);display:inline-block;margin-right:3px"></div>`}
+        ${esc(r.method||'')}
+      </td>
       <td class="sta ${sc}">${r.error?'ERR':(r.status||'…')}</td>
-      <td class="typ">${esc(r.type||'')}</td>
+      <td class="typ">${esc(r.type||'')}${streaming?'<span class="stream-badge">⟳</span>':''}</td>
       <td class="siz">${r.size!=null?fmtSize(r.size):'…'}</td>
       <td class="tim">${timeCell}</td>
-      <td class="url-c" title="${esc(r.url)}">${esc(r.url.replace(/^https?:\/\/[^/]+/,'') || '/')}</td>
+      <td class="url-c" title="${esc(r.url)}">${esc(r.url.replace(/^https?:\/\/[^/]+/,'') || '/')}${dupCnt>1&&dedupMode?`<span class="dup-badge">${dupCnt}×</span>`:''}${hasAnn?`<span class="ann-icon" data-annid="${esc(r.id)}" title="${esc(annotations[r.id])}">📝</span>`:''}</td>
     </tr>`);
     if (exp) {
       const gql = isGraphQL(r);
       const hasRedirects = r.redirectChain?.length > 0;
-      const tabs = ['response-body','request-body','req-headers','res-headers'];
+      const tabs = ['response-body','request-body','req-headers','res-headers','tokens','cache'];
       if (gql) tabs.splice(1, 0, 'graphql');
       if (hasRedirects) tabs.push('redirects');
-      const tabLabels = {'response-body':'Response','request-body':'Req Body','req-headers':'Req Headers','res-headers':'Res Headers','graphql':'GraphQL','redirects':`Redirects (${r.redirectChain?.length||0})`};
+      const tabLabels = {'response-body':'Response','request-body':'Req Body','req-headers':'Req Headers','res-headers':'Res Headers','graphql':'GraphQL','redirects':`Redirects (${r.redirectChain?.length||0})`,'tokens':'🔑 Tokens','cache':'📦 Cache'};
+      const rawContent = getDetContent(r, expandedDTab);
+      const isJsonResp = expandedDTab === 'response-body' && r.responseBody;
+      let treeParsed = null;
+      if (isJsonResp) { try { treeParsed = JSON.parse(r.responseBody); } catch {} }
       rows.push(`<tr class="det-row"><td colspan="7"><div class="det-pane">
         <div class="det-tabs">
           ${tabs.map(t=>`<div class="d-t ${expandedDTab===t?'active':''}" data-dt="${t}" data-id="${esc(r.id)}">${tabLabels[t]}${t==='graphql'?'<span class="gql-badge">GQL</span>':''}</div>`).join('')}
-          <button class="d-curl" data-cid="${esc(r.id)}">Copy cURL</button>
+          <button class="d-curl" data-cid="${esc(r.id)}">cURL</button>
+          <button class="d-curl" data-fetchid="${esc(r.id)}" style="margin-left:2px">fetch()</button>
           <button class="d-curl" data-rpid="${esc(r.id)}" style="margin-left:2px">↺ Replay</button>
+          <button class="d-curl" data-annid="${esc(r.id)}" style="margin-left:2px">📝</button>
         </div>
-        <div class="det-c">${getDetContent(r, expandedDTab)}</div>
+        ${(expandedDTab==='response-body'||expandedDTab==='request-body')?`<div class="det-search"><input class="det-search-input" placeholder="Search in body..." style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:3px;color:var(--text);padding:3px 8px;font-size:11px;outline:none"><span class="det-search-cnt"></span></div>`:''}
+        ${treeParsed!==null?`<div style="padding:6px;max-height:220px;overflow-y:auto;font-size:11px">${renderJsonTree(treeParsed)}</div>`:
+          `<div class="det-c" data-raw="${esc(typeof rawContent==='string'?rawContent:'')}">${typeof rawContent==='string'?esc(rawContent):rawContent}</div>`}
       </div></td></tr>`);
     }
   }
@@ -1063,6 +1154,20 @@ function renderNetwork() {
   tbody.querySelectorAll('.d-t').forEach(dt => dt.addEventListener('click', e => { e.stopPropagation(); expandedDTab=dt.dataset.dt; renderNetwork(); }));
   tbody.querySelectorAll('.d-curl[data-cid]').forEach(btn => btn.addEventListener('click', e => { e.stopPropagation(); const r=netRequests.find(x=>x.id===btn.dataset.cid); if(r){navigator.clipboard.writeText(buildCurl(r));btn.textContent='Copied!';setTimeout(()=>btn.textContent='Copy cURL',1500);} }));
   tbody.querySelectorAll('.d-curl[data-rpid]').forEach(btn => btn.addEventListener('click', e => { e.stopPropagation(); const r=netRequests.find(x=>x.id===btn.dataset.rpid); if(r) openReplayModal(r); }));
+  tbody.querySelectorAll('.d-curl[data-fetchid]').forEach(btn => btn.addEventListener('click', e => { e.stopPropagation(); const r=netRequests.find(x=>x.id===btn.dataset.fetchid); if(r){navigator.clipboard.writeText(buildFetchCode(r));btn.textContent='Copied!';setTimeout(()=>btn.textContent='fetch()',1500);} }));
+  tbody.querySelectorAll('.d-curl[data-annid]').forEach(btn => btn.addEventListener('click', e => { e.stopPropagation(); openAnnotationModal(btn.dataset.annid); }));
+  tbody.querySelectorAll('.tag-dot[data-tid]').forEach(dot => dot.addEventListener('click', e => { e.stopPropagation(); cycleTag(dot.dataset.tid); }));
+  tbody.querySelectorAll('.ann-icon[data-annid]').forEach(icon => icon.addEventListener('click', e => { e.stopPropagation(); openAnnotationModal(icon.dataset.annid); }));
+  // Detail body search
+  tbody.querySelectorAll('.det-search-input').forEach(inp => {
+    inp.addEventListener('input', () => {
+      const q = inp.value.toLowerCase();
+      const detC = inp.closest('.det-pane').querySelector('.det-c');
+      const rawTxt = detC.dataset.raw || '';
+      detC.innerHTML = q ? searchInContent(rawTxt, q) : esc(rawTxt);
+      inp.closest('.det-search').querySelector('.det-search-cnt').textContent = q ? `${(rawTxt.match(new RegExp(q,'gi'))||[]).length} match` : '';
+    });
+  });
 }
 function getDetContent(r, tab) {
   if (tab==='response-body') { if(r.error) return esc('Error: '+r.error); if(!r.done) return '…'; if(!r.responseBody) return '(empty)'; return esc(prettyJSON(r.responseBody)); }
@@ -1070,6 +1175,8 @@ function getDetContent(r, tab) {
   if (tab==='req-headers') return r.requestHeaders ? esc(Object.entries(r.requestHeaders).map(([k,v])=>`${k}: ${v}`).join('\n')) : '(none)';
   if (tab==='res-headers') return r.responseHeaders ? esc(Object.entries(r.responseHeaders).map(([k,v])=>`${k}: ${v}`).join('\n')) : '(none)';
   if (tab==='graphql') return renderGraphQL(r);
+  if (tab==='tokens') return renderTokens(r);
+  if (tab==='cache') { const c = analyzeCacheHeaders(r); return `<div style="padding:4px 0"><span class="${c.cls}" style="font-weight:600">${esc(c.label)}</span> — ${esc(c.detail)}</div><div style="font-size:10px;color:var(--muted);margin-top:4px">${Object.entries(r.responseHeaders||{}).filter(([k])=>['cache-control','etag','last-modified','expires','vary'].includes(k.toLowerCase())).map(([k,v])=>`${esc(k)}: ${esc(v)}`).join('\n')||'(no cache headers)'}</div>`; }
   if (tab==='redirects') {
     if (!r.redirectChain?.length) return '<span style="color:var(--muted)">No redirects</span>';
     return '<div class="redir-chain">' +
@@ -1139,7 +1246,9 @@ function renderConsole() {
       <span class="log-icon">${icons[l.level]||'›'}</span>
       <span class="log-txt">${esc(l.text)}</span>
       ${l.url?`<span class="log-src">${esc(shortUrl(l.url))}${l.line?':'+l.line:''}</span>`:''}
+      ${l.level==='error'?`<button class="sec-fix-btn" data-eli="${i}" style="font-size:10px;padding:1px 6px;margin-left:auto">✦ Explain</button>`:''}
     </div>`).join('');
+    list.querySelectorAll('[data-eli]').forEach(btn => btn.addEventListener('click', e => { e.stopPropagation(); explainError(vis[parseInt(btn.dataset.eli)]); }));
     list.querySelectorAll('input[data-idx]').forEach(cb => cb.addEventListener('change', e => { e.stopPropagation(); const i=parseInt(cb.dataset.idx); if(cb.checked) selectedLogs.add(i); else selectedLogs.delete(i); updateConSel(); }));
   }
   updateConSel();
@@ -1157,9 +1266,10 @@ function renderWebSockets() {
     const isOpen = expandedWsConn === conn.id;
     const frames = conn.frames.filter(f => !fd||f.dir===fd);
     const frHtml = frames.map((f,fi) => { const sel=selectedWsFrames.some(s=>s.connId===conn.id&&s.frameIdx===fi); return `<div class="ws-frame"><input type="checkbox" data-cid="${esc(conn.id)}" data-fi="${fi}" ${sel?'checked':''}><span class="ws-dir ${f.dir}">${f.dir==='sent'?'↑':'↓'}</span><div class="ws-data">${esc(tryPrettyWs(f.data))}</div><span class="ws-ts">${fmtTime(f.ts)}</span></div>`; }).join('');
-    return `<div class="ws-conn ${isOpen?'open':''}" data-id="${esc(conn.id)}"><div class="ws-hdr"><div class="ws-dot ${conn.closed?'closed':''}"></div><span class="ws-url" title="${esc(conn.url)}">${esc(conn.url)}</span><span class="ws-meta">${conn.frames.length} frames ${conn.closed?'· closed':'· open'}</span></div><div class="ws-frames">${frHtml||'<div style="color:var(--muted);font-size:11px;padding:4px">No frames</div>'}</div></div>`;
+    return `<div class="ws-conn ${isOpen?'open':''}" data-id="${esc(conn.id)}"><div class="ws-hdr"><div class="ws-dot ${conn.closed?'closed':''}"></div><span class="ws-url" title="${esc(conn.url)}">${esc(conn.url)}</span><span class="ws-meta">${conn.frames.length} frames ${conn.closed?'· closed':'· open'}</span>${!conn.closed?`<button class="d-curl" data-wsurl="${esc(conn.url)}" style="margin-left:8px;padding:1px 7px" onclick="event.stopPropagation()">📤 Send</button>`:''}</div><div class="ws-frames">${frHtml||'<div style="color:var(--muted);font-size:11px;padding:4px">No frames</div>'}</div></div>`;
   }).join('');
-  list.querySelectorAll('.ws-hdr').forEach(h => h.addEventListener('click', () => { const id=h.closest('.ws-conn').dataset.id; expandedWsConn=expandedWsConn===id?null:id; renderWebSockets(); }));
+  list.querySelectorAll('.ws-hdr').forEach(h => h.addEventListener('click', e => { if(e.target.classList.contains('d-curl')) return; const id=h.closest('.ws-conn').dataset.id; expandedWsConn=expandedWsConn===id?null:id; renderWebSockets(); }));
+  list.querySelectorAll('[data-wsurl]').forEach(btn => btn.addEventListener('click', () => openWsSender(btn.dataset.wsurl)));
   list.querySelectorAll('input[data-cid]').forEach(cb => cb.addEventListener('change', e => { e.stopPropagation(); const cid=cb.dataset.cid,fi=parseInt(cb.dataset.fi); if(cb.checked) selectedWsFrames.push({connId:cid,frameIdx:fi}); else selectedWsFrames=selectedWsFrames.filter(s=>!(s.connId===cid&&s.frameIdx===fi)); updateWsSel(); }));
   updateWsSel();
 }
@@ -1293,7 +1403,7 @@ async function sendChat() {
   chatPort = chrome.runtime.connect({name:'inspector-chat'});
   chatPort.onMessage.addListener(msg=>{
     if(msg.type==='CHUNK'){if(!bubble)bubble=appendStreamBubble();ac+=msg.content;renderBubble(bubble,ac);}
-    else if(msg.type==='DONE'||msg.type==='ERROR'){if(msg.type==='ERROR')appendChatMsg('assistant','⚠ '+msg.error);if(ac)chatHistory.push({role:'assistant',content:ac});setGenerating(false);chatPort=null;}
+    else if(msg.type==='DONE'||msg.type==='ERROR'){if(msg.type==='ERROR')appendChatMsg('assistant','⚠ '+msg.error);if(ac){chatHistory.push({role:'assistant',content:ac});chrome.storage.local.set({['inspector-chat-history-'+targetTabId]:chatHistory.slice(-40)});}setGenerating(false);chatPort=null;}
   });
   chatPort.onDisconnect.addListener(()=>{if(generating)setGenerating(false);});
   chatPort.postMessage({type:'CHAT',payload:{messages,settings:{apiBaseUrl:settings.apiUrl,apiKey:settings.apiKey,model:settings.model}}});
@@ -1322,6 +1432,424 @@ function renderContent(text){
 }
 function scrollChat(){requestAnimationFrame(()=>{const m=document.getElementById('chat-msgs');m.scrollTop=m.scrollHeight;});}
 function autoResize(){const el=document.getElementById('chat-prompt');el.style.height='auto';el.style.height=Math.min(el.scrollHeight,120)+'px';}
+
+// ── Network Pause ─────────────────────────────────────────
+async function toggleNetPause() {
+  if (!targetTabId || !capturing) { alert('Start capture first.'); return; }
+  const r = await chrome.runtime.sendMessage({ type: 'INS_NET_PAUSE', tabId: targetTabId, pause: !networkPaused });
+  if (!r.ok) { alert('Failed: ' + r.error); return; }
+  networkPaused = !networkPaused;
+  const btn = document.getElementById('pause-btn');
+  btn.textContent = networkPaused ? '▶ Resume' : '⏸ Pause';
+  btn.classList.toggle('pause-on', networkPaused);
+  showToast(networkPaused ? '⏸ Network paused — all requests will fail' : '▶ Network resumed', networkPaused ? 'alert' : '');
+}
+
+// ── Baseline ──────────────────────────────────────────────
+function pinBaseline() {
+  if (!netRequests.length) { alert('Nothing captured yet.'); return; }
+  baselineSession = { requests: netRequests.slice(), console: consoleLogs.slice(), ts: Date.now() };
+  const btn = document.getElementById('baseline-btn');
+  btn.textContent = '📌 Pinned ✓'; btn.style.color = 'var(--green)';
+  showToast(`📌 Baseline pinned: ${netRequests.length} requests`);
+}
+
+// ── Theme & Font ──────────────────────────────────────────
+function toggleTheme() {
+  isLightTheme = !isLightTheme;
+  document.body.classList.toggle('light', isLightTheme);
+  document.getElementById('theme-btn').textContent = isLightTheme ? '☀' : '🌙';
+}
+function changeFontSize(delta) {
+  fontScale = Math.max(10, Math.min(16, fontScale + delta));
+  document.body.style.fontSize = fontScale + 'px';
+  document.getElementById('font-dec').disabled = fontScale <= 10;
+  document.getElementById('font-inc').disabled = fontScale >= 16;
+}
+
+// ── Dedup ─────────────────────────────────────────────────
+function getDuplicates() {
+  const seen = new Map();
+  netRequests.forEach(r => { const k = r.method + '|' + r.url; seen.set(k, (seen.get(k) || 0) + 1); });
+  return seen;
+}
+
+// ── Compare Responses ─────────────────────────────────────
+function openCompareModal() {
+  const sel = [...selectedRequests];
+  if (sel.length < 2) { alert('Select exactly 2 requests in the Network tab first.'); return; }
+  const [a, b] = sel.slice(0, 2).map(id => netRequests.find(r => r.id === id));
+  if (!a || !b) return;
+  const aBody = prettyJSON(a.responseBody || '');
+  const bBody = prettyJSON(b.responseBody || '');
+  document.getElementById('cmp-a-lbl').textContent = shortUrl(a.url) + ' (' + (a.status||'?') + ')';
+  document.getElementById('cmp-b-lbl').textContent = shortUrl(b.url) + ' (' + (b.status||'?') + ')';
+  const aLines = aBody.split('\n'), bLines = bBody.split('\n');
+  document.getElementById('cmp-a').innerHTML = aLines.map(l => `<div class="${bLines.includes(l)?'':'cmp-del'}">${esc(l)}</div>`).join('');
+  document.getElementById('cmp-b').innerHTML = bLines.map(l => `<div class="${aLines.includes(l)?'':'cmp-add'}">${esc(l)}</div>`).join('');
+  openModal('compare-modal');
+}
+
+// ── Export Postman ────────────────────────────────────────
+function exportPostman() {
+  if (!netRequests.length) { alert('No requests captured.'); return; }
+  const items = netRequests.map(r => ({
+    name: shortUrl(r.url), request: {
+      method: r.method || 'GET', url: { raw: r.url, protocol: r.url.split('://')[0], path: r.url.split('/').slice(3) },
+      header: Object.entries(r.requestHeaders || {}).map(([key, value]) => ({ key, value })),
+      body: r.requestBody ? { mode: 'raw', raw: r.requestBody } : undefined,
+    }, response: [],
+  }));
+  dl(JSON.stringify({ info: { name: 'AI Inspector Export', schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json' }, item: items }, null, 2), 'capture.postman_collection.json');
+}
+
+// ── Auto-Retry Errors ─────────────────────────────────────
+async function retryAllErrors() {
+  const failed = netRequests.filter(r => r.error || (r.status >= 400));
+  if (!failed.length) { alert('No failed requests to retry.'); return; }
+  const results = [];
+  for (const r of failed.slice(0, 10)) {
+    const res = await chrome.runtime.sendMessage({ type: 'INS_REPLAY', tabId: targetTabId, url: r.url, method: r.method, headers: r.requestHeaders, body: r.requestBody });
+    results.push(`${r.method} ${shortUrl(r.url)}: ${res.ok ? res.status : 'ERR ' + res.error}`);
+  }
+  alert(`Retry results:\n${results.join('\n')}`);
+}
+
+// ── Copy as fetch() ───────────────────────────────────────
+function buildFetchCode(r) {
+  const opts = { method: r.method };
+  if (r.requestHeaders && Object.keys(r.requestHeaders).length) opts.headers = r.requestHeaders;
+  if (r.requestBody) opts.body = r.requestBody;
+  return `fetch(${JSON.stringify(r.url)}, ${JSON.stringify(opts, null, 2)})\n  .then(r => r.json())\n  .then(console.log)\n  .catch(console.error);`;
+}
+
+// ── JSON Tree Viewer ──────────────────────────────────────
+let jtCounter = 0;
+function renderJsonTree(data, depth) {
+  if (depth === undefined) depth = 0;
+  if (data === null) return `<span class="jt-val null">null</span>`;
+  if (typeof data === 'boolean') return `<span class="jt-val boolean">${data}</span>`;
+  if (typeof data === 'number') return `<span class="jt-val number">${data}</span>`;
+  if (typeof data === 'string') return `<span class="jt-val string">"${esc(data.slice(0, 200))}${data.length>200?'…':''}"</span>`;
+  const isArr = Array.isArray(data);
+  const entries = isArr ? data.map((v, i) => [i, v]) : Object.entries(data);
+  if (!entries.length) return isArr ? '<span class="jt-val">[]</span>' : '<span class="jt-val">{}</span>';
+  if (depth > 6) return `<span class="jt-val">${isArr?'[…]':'{…}'}</span>`;
+  const id = 'jt' + (++jtCounter);
+  const preview = isArr ? `Array[${entries.length}]` : `Object{${entries.length}}`;
+  return `<span class="jt-toggle" data-jt="${id}" onclick="jtToggle(this)">${esc(preview)}</span><div class="jt-body" id="${id}">${
+    entries.map(([k, v]) => `<div class="jt-row"><span class="jt-key">${esc(String(k))}</span>: ${renderJsonTree(v, depth + 1)}</div>`).join('')
+  }</div>`;
+}
+window.jtToggle = btn => { const el = document.getElementById(btn.dataset.jt); el.classList.toggle('collapsed'); };
+
+// ── Request Deduplication ─────────────────────────────────
+// Used in renderNetwork via getDuplicates()
+
+// ── Page Load Budget ──────────────────────────────────────
+function openBudgetModal() {
+  document.getElementById('bdg-reqs').value = budgetRules.reqs || '';
+  document.getElementById('bdg-size').value = budgetRules.size || '';
+  document.getElementById('bdg-errs').value = budgetRules.errs !== undefined ? budgetRules.errs : '';
+  document.getElementById('bdg-slow').value = budgetRules.slow !== undefined ? budgetRules.slow : '';
+  renderBudgetStatus();
+  openModal('budget-modal');
+}
+function renderBudgetStatus() {
+  const done = netRequests.filter(r => r.done);
+  const totalSize = done.reduce((s, r) => s + (r.size || 0), 0);
+  const errors = done.filter(r => r.error || r.status >= 400).length;
+  const slow = done.filter(r => r.ttfb > 1000).length;
+  const checks = [
+    { label: 'Requests', val: done.length, max: budgetRules.reqs },
+    { label: 'Size', val: Math.round(totalSize/1024), max: budgetRules.size, fmt: v => v+'KB' },
+    { label: 'Errors', val: errors, max: budgetRules.errs },
+    { label: 'Slow', val: slow, max: budgetRules.slow },
+  ].filter(c => c.max);
+  document.getElementById('bdg-status').innerHTML = checks.map(c => {
+    const pct = Math.min(100, c.max > 0 ? Math.round(c.val/c.max*100) : 0);
+    const cls = pct >= 100 ? 'budget-err' : pct >= 80 ? 'budget-warn' : 'budget-ok';
+    return `<div class="budget-row"><span>${c.label}</span><span>${c.fmt?c.fmt(c.val):c.val} / ${c.fmt?c.fmt(c.max):c.max}</span></div><div class="budget-bar"><div class="budget-fill ${cls}" style="width:${pct}%"></div></div>`;
+  }).join('') || '<span style="color:var(--muted)">No limits set yet.</span>';
+}
+async function saveBudget() {
+  budgetRules = { reqs: parseInt(document.getElementById('bdg-reqs').value)||0, size: parseInt(document.getElementById('bdg-size').value)||0, errs: parseInt(document.getElementById('bdg-errs').value)||0, slow: parseInt(document.getElementById('bdg-slow').value)||0 };
+  await chrome.storage.local.set({ 'inspector-budget': budgetRules });
+  renderBudgetStatus(); showToast('💰 Budget saved');
+}
+function checkBudget() {
+  if (!Object.values(budgetRules).some(Boolean)) return;
+  const done = netRequests.filter(r => r.done);
+  const totalKB = Math.round(done.reduce((s,r)=>s+(r.size||0),0)/1024);
+  const errs = done.filter(r=>r.error||r.status>=400).length;
+  const slow = done.filter(r=>r.ttfb>1000).length;
+  if ((budgetRules.reqs && done.length > budgetRules.reqs) ||
+      (budgetRules.size && totalKB > budgetRules.size) ||
+      (budgetRules.errs !== undefined && errs > budgetRules.errs) ||
+      (budgetRules.slow !== undefined && slow > budgetRules.slow)) {
+    showToast(`💰 Budget exceeded — ${done.length} req, ${totalKB}KB, ${errs} errors`, 'alert');
+  }
+}
+
+// ── Alert Rules ───────────────────────────────────────────
+function openAlertsModal() {
+  renderAlertList(); openModal('alerts-modal');
+}
+function renderAlertList() {
+  const el = document.getElementById('alr-list');
+  if (!alertRules.length) { el.innerHTML = '<div style="color:var(--muted);font-size:11px">No alert rules.</div>'; return; }
+  el.innerHTML = alertRules.map((r, i) =>
+    `<div class="block-row"><span style="font-family:monospace;font-size:11px;color:var(--orange)">${esc(r.pattern)}</span> <span style="color:var(--muted);font-size:10px">${r.cond}${r.status?' '+r.status:''}</span><button class="block-rm" data-i="${i}">✕</button></div>`
+  ).join('');
+  el.querySelectorAll('.block-rm').forEach(b => b.addEventListener('click', async () => { alertRules.splice(parseInt(b.dataset.i), 1); await chrome.storage.local.set({'inspector-alert-rules':alertRules}); renderAlertList(); }));
+}
+async function addAlertRule() {
+  const pattern = document.getElementById('alr-pattern').value.trim();
+  if (!pattern) { alert('Enter a URL pattern.'); return; }
+  alertRules.push({ pattern, cond: document.getElementById('alr-cond').value, status: parseInt(document.getElementById('alr-status').value)||0 });
+  await chrome.storage.local.set({ 'inspector-alert-rules': alertRules });
+  document.getElementById('alr-pattern').value = ''; renderAlertList();
+}
+function checkAlerts() {
+  if (!alertRules.length) return;
+  for (const r of netRequests) {
+    for (const rule of alertRules) {
+      let matches = false;
+      try { matches = new RegExp(rule.pattern, 'i').test(r.url); } catch { matches = r.url.includes(rule.pattern); }
+      if (!matches) continue;
+      if (rule.cond === 'status' && r.status !== rule.status) continue;
+      if (rule.cond === 'error' && !(r.error || r.status >= 400)) continue;
+      if (rule.cond === 'slow' && !(r.ttfb > 1000)) continue;
+      if (!r.__alerted) { r.__alerted = true; showToast(`🔔 Alert: ${rule.pattern} → ${r.status||'ERR'} ${shortUrl(r.url)}`, 'alert'); }
+    }
+  }
+}
+
+// ── Filter Presets ────────────────────────────────────────
+async function openPresetsModal() {
+  renderPresetList(); openModal('presets-modal');
+}
+function renderPresetList() {
+  const el = document.getElementById('pst-list');
+  if (!filterPresets.length) { el.innerHTML = '<div style="color:var(--muted);font-size:11px">No saved presets.</div>'; return; }
+  el.innerHTML = filterPresets.map((p, i) =>
+    `<div class="sess-item" data-i="${i}">
+      <div style="flex:1"><div class="sess-name">${esc(p.name)}</div><div class="sess-meta">${esc(p.method||'All')} · ${esc(p.type||'All')} · ${esc(p.text||'(any URL)')}</div></div>
+      <button class="sess-del" data-i="${i}">✕</button>
+    </div>`
+  ).join('');
+  el.querySelectorAll('.sess-item').forEach(el => el.addEventListener('click', e => {
+    if (e.target.classList.contains('sess-del')) return;
+    const p = filterPresets[parseInt(el.dataset.i)];
+    filterText = p.text || ''; filterMethod = p.method || ''; filterType = p.type || '';
+    document.getElementById('net-filter').value = filterText;
+    document.getElementById('method-filter').value = filterMethod;
+    document.getElementById('type-filter').value = filterType;
+    renderNetwork(); closeModal('presets-modal');
+  }));
+  el.querySelectorAll('.sess-del').forEach(btn => btn.addEventListener('click', async e => {
+    e.stopPropagation(); filterPresets.splice(parseInt(btn.dataset.i), 1);
+    await chrome.storage.local.set({'inspector-filter-presets':filterPresets}); renderPresetList();
+  }));
+}
+async function saveFilterPreset() {
+  const name = document.getElementById('pst-name').value.trim();
+  if (!name) { alert('Enter a preset name.'); return; }
+  filterPresets.push({ name, text: filterText, method: filterMethod, type: filterType });
+  await chrome.storage.local.set({ 'inspector-filter-presets': filterPresets });
+  document.getElementById('pst-name').value = ''; renderPresetList();
+}
+
+// ── History Chart ─────────────────────────────────────────
+function openHistoryModal() {
+  const bars = document.getElementById('hist-bars');
+  const axis = document.getElementById('hist-axis');
+  if (historyData.length < 2) { bars.innerHTML = '<div style="color:var(--muted);font-size:11px">No history yet — start capture and browse.</div>'; axis.innerHTML=''; openModal('history-modal'); return; }
+  const counts = historyData.map((d, i) => i > 0 ? d.count - historyData[i-1].count : 0).slice(1);
+  const maxC = Math.max(...counts, 1);
+  bars.innerHTML = counts.map((c, i) => `<div class="hist-bar" style="height:${Math.max(2,Math.round(c/maxC*100))}%" title="${c} new req"></div>`).join('');
+  const first = new Date(historyData[0].ts), last = new Date(historyData[historyData.length-1].ts);
+  axis.innerHTML = `<span>${first.toLocaleTimeString()}</span><span>${last.toLocaleTimeString()}</span>`;
+  document.getElementById('hist-subtitle').textContent = `${historyData.length} polls · max ${Math.max(...counts)}/s`;
+  openModal('history-modal');
+}
+
+// ── Multi-Tab ─────────────────────────────────────────────
+async function openMultiTabModal() {
+  const tabs = await chrome.tabs.query({ url: ['http://*/*','https://*/*'] });
+  const list = document.getElementById('tab-list');
+  list.innerHTML = tabs.map(t =>
+    `<div class="sess-item" data-tid="${t.id}" style="cursor:pointer">
+      <div style="flex:1">
+        <div class="sess-name">${esc(t.title||'Untitled')}</div>
+        <div class="sess-meta">${esc(t.url?.slice(0,80)||'')}</div>
+      </div>
+    </div>`
+  ).join('') || '<div style="color:var(--muted);font-size:11px">No tabs found.</div>';
+  list.querySelectorAll('.sess-item[data-tid]').forEach(el => el.addEventListener('click', () => {
+    const url = chrome.runtime.getURL('inspector.html') + '?tabId=' + el.dataset.tid;
+    chrome.tabs.create({ url });
+    closeModal('multitab-modal');
+  }));
+  openModal('multitab-modal');
+}
+
+// ── Clipboard / Beacon ────────────────────────────────────
+async function openClipboardModal() {
+  if (!targetTabId || !capturing) { document.getElementById('clip-list').innerHTML = '<div style="color:var(--muted);font-size:11px">Start capture first and interact with the page.</div>'; openModal('clipboard-modal'); return; }
+  const r = await chrome.runtime.sendMessage({ type: 'INS_CLIPBOARD_GET', tabId: targetTabId });
+  const list = document.getElementById('clip-list');
+  const clips = r.clips || [];
+  list.innerHTML = clips.length ? clips.map(c => `<div class="mock-item"><div style="font-size:10px;color:var(--muted)">${new Date(c.ts).toLocaleTimeString()}</div><div style="font-family:monospace;font-size:11px;white-space:pre-wrap;word-break:break-all;max-height:80px;overflow-y:auto">${esc(c.text)}</div></div>`).join('') : '<div style="color:var(--muted);font-size:11px">No clipboard events captured yet.</div>';
+  openModal('clipboard-modal');
+}
+async function openBeaconModal() {
+  if (!targetTabId || !capturing) { document.getElementById('beacon-list').innerHTML = '<div style="color:var(--muted);font-size:11px">Start capture first.</div>'; openModal('beacon-modal'); return; }
+  const r = await chrome.runtime.sendMessage({ type: 'INS_BEACON_GET', tabId: targetTabId });
+  const list = document.getElementById('beacon-list');
+  const beacons = r.beacons || [];
+  list.innerHTML = beacons.length ? beacons.map(b => `<div class="mock-item"><div style="display:flex;justify-content:space-between"><span class="mock-pat">${esc(b.url)}</span><span style="font-size:10px;color:var(--muted)">${new Date(b.ts).toLocaleTimeString()}</span></div><div style="font-size:10px;font-family:monospace;color:var(--muted)">${esc(b.data)}</div></div>`).join('') : '<div style="color:var(--muted);font-size:11px">No sendBeacon() calls captured yet.</div>';
+  openModal('beacon-modal');
+}
+
+// ── WebSocket Sender ──────────────────────────────────────
+function openWsSender(url) {
+  document.getElementById('wss-url').value = url;
+  document.getElementById('wss-data').value = '';
+  document.getElementById('wss-result').textContent = '';
+  openModal('ws-send-modal');
+}
+async function sendWsMessage() {
+  const url = document.getElementById('wss-url').value;
+  const data = document.getElementById('wss-data').value;
+  if (!data) { alert('Enter a message.'); return; }
+  const r = await chrome.runtime.sendMessage({ type: 'INS_WS_SEND', tabId: targetTabId, url, data });
+  document.getElementById('wss-result').textContent = r.ok ? '✓ Sent' : '✗ ' + r.error;
+  document.getElementById('wss-result').style.color = r.ok ? 'var(--green)' : 'var(--err)';
+}
+
+// ── Annotations ───────────────────────────────────────────
+function openAnnotationModal(id) {
+  annotatingId = id;
+  document.getElementById('ann-id').value = id;
+  document.getElementById('ann-text').value = annotations[id] || '';
+  document.getElementById('ann-del').style.display = annotations[id] ? '' : 'none';
+  openModal('annotation-modal');
+}
+async function saveAnnotation() {
+  const id = document.getElementById('ann-id').value;
+  const text = document.getElementById('ann-text').value.trim();
+  if (text) annotations[id] = text; else delete annotations[id];
+  await chrome.storage.local.set({ 'inspector-annotations': annotations });
+  closeModal('annotation-modal'); renderNetwork();
+}
+async function deleteAnnotation() {
+  const id = document.getElementById('ann-id').value;
+  delete annotations[id];
+  await chrome.storage.local.set({ 'inspector-annotations': annotations });
+  closeModal('annotation-modal'); renderNetwork();
+}
+
+// ── Request Tags ──────────────────────────────────────────
+async function cycleTag(id) {
+  const colors = Object.keys(TAG_COLORS);
+  const cur = requestTags[id] || 'none';
+  const next = colors[(colors.indexOf(cur) + 1) % colors.length];
+  if (next === 'none') delete requestTags[id]; else requestTags[id] = next;
+  await chrome.storage.local.set({ 'inspector-tags': requestTags });
+  renderNetwork();
+}
+
+// ── Toast ─────────────────────────────────────────────────
+let toastTimer = null;
+function showToast(msg, type = '') {
+  let el = document.getElementById('toast-el');
+  if (!el) { el = document.createElement('div'); el.id = 'toast-el'; el.className = 'toast'; document.body.appendChild(el); }
+  el.textContent = msg; el.className = `toast ${type}`; el.style.opacity = '1';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.style.opacity = '0'; }, 3000);
+}
+
+// ── Body Search ───────────────────────────────────────────
+function searchInContent(text, query) {
+  if (!query) return esc(text);
+  const parts = text.split(new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')})`, 'gi'));
+  return parts.map(p => p.toLowerCase() === query.toLowerCase() ? `<mark class="hl">${esc(p)}</mark>` : esc(p)).join('');
+}
+
+// ── DNS Prefetch ──────────────────────────────────────────
+async function analyzeDnsPrefetch() {
+  if (!targetTabId) return;
+  const r = await chrome.runtime.sendMessage({ type: 'INS_DNS_PREFETCH', tabId: targetTabId });
+  const links = r.links || [];
+  if (!links.length) { showToast('No prefetch/preconnect/preload links found.'); return; }
+  const usedHosts = new Set(netRequests.map(r => { try { return new URL(r.url).host; } catch { return ''; } }));
+  chatContext.push({ type: 'repl', data: { code: 'DNS/Prefetch analysis', result: links.map(l => `[${l.rel}] ${l.href}${l.as?' ('+l.as+')':''}${usedHosts.has(new URL(l.href).host)?'  ✓ used':'  ✗ unused'}`).join('\n') } });
+  renderCtxBar(); switchTab('chat');
+}
+
+// ── Auth Token Decoder ────────────────────────────────────
+function decodeJwt(token) {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const payload = JSON.parse(atob(parts[1].replace(/-/g,'+').replace(/_/g,'/')));
+    return { header: JSON.parse(atob(parts[0].replace(/-/g,'+').replace(/_/g,'/'))), payload };
+  } catch { return null; }
+}
+function findTokens(r) {
+  const tokens = [];
+  const jwtRe = /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g;
+  const bearerRe = /Bearer\s+([\w\-._~+/]+=*)/gi;
+  const allText = JSON.stringify([r.requestHeaders, r.responseHeaders, r.responseBody, r.requestBody]);
+  let m;
+  while ((m = jwtRe.exec(allText)) !== null) tokens.push({ type: 'JWT', value: m[0], decoded: decodeJwt(m[0]) });
+  while ((m = bearerRe.exec(allText)) !== null) { if (!tokens.find(t => t.value === m[1])) tokens.push({ type: 'Bearer', value: m[1] }); }
+  return tokens;
+}
+function renderTokens(r) {
+  const tokens = findTokens(r);
+  if (!tokens.length) return '<span style="color:var(--muted)">No JWT or Bearer tokens found in headers or body.</span>';
+  return tokens.map(t => {
+    let html = `<div style="margin-bottom:8px;padding:6px;background:var(--surface2);border-radius:4px;border:1px solid var(--border)">
+      <div style="font-size:10px;color:var(--muted);margin-bottom:4px">${t.type}</div>
+      <div style="font-family:monospace;font-size:10px;word-break:break-all;color:var(--orange)">${esc(t.value.slice(0,80))}${t.value.length>80?'…':''}</div>`;
+    if (t.decoded) {
+      html += `<div style="margin-top:6px;font-size:10px"><span style="color:var(--accent)">exp:</span> ${t.decoded.payload.exp ? new Date(t.decoded.payload.exp*1000).toLocaleString() : 'none'} · <span style="color:var(--accent)">sub:</span> ${esc(String(t.decoded.payload.sub||''))} · <span style="color:var(--accent)">iss:</span> ${esc(String(t.decoded.payload.iss||''))}</div>`;
+      html += `<div style="margin-top:4px;font-size:10px;font-family:monospace;color:var(--yellow)">${esc(JSON.stringify(t.decoded.payload, null, 2).slice(0,400))}</div>`;
+    }
+    html += `</div>`;
+    return html;
+  }).join('');
+}
+
+// ── Cache Analysis ────────────────────────────────────────
+function analyzeCacheHeaders(r) {
+  const hdrs = Object.fromEntries(Object.entries(r.responseHeaders||{}).map(([k,v])=>[k.toLowerCase(),v]));
+  const cc = hdrs['cache-control'] || '';
+  if (cc.includes('no-store')) return { label: 'No Store', cls: 'cache-miss', detail: 'Not cached at all' };
+  if (cc.includes('no-cache')) return { label: 'No Cache', cls: 'cache-warn', detail: 'Always revalidates' };
+  const maxAge = cc.match(/max-age=(\d+)/)?.[1];
+  if (maxAge) return { label: `Max-age ${maxAge}s`, cls: parseInt(maxAge)>0 ? 'cache-ok' : 'cache-warn', detail: `Cached for ${maxAge} seconds` };
+  if (hdrs['etag'] || hdrs['last-modified']) return { label: 'Conditional', cls: 'cache-warn', detail: 'Uses ETag/Last-Modified' };
+  return { label: 'No directive', cls: 'cache-miss', detail: 'Missing Cache-Control header' };
+}
+
+// ── Streaming badge helper ────────────────────────────────
+function isStreaming(r) {
+  const te = Object.entries(r.responseHeaders||{}).find(([k])=>k.toLowerCase()==='transfer-encoding');
+  return te && te[1].toLowerCase().includes('chunked');
+}
+
+// ── AI Explain Error ──────────────────────────────────────
+function explainError(log) {
+  if (!settings.model) { alert('Configure a model in ⚙ settings first.'); return; }
+  chatContext = [{ type: 'log', data: log }]; renderCtxBar(); switchTab('chat');
+  setTimeout(() => {
+    document.getElementById('chat-prompt').value = `Explain this browser error and how to fix it: ${log.text}`;
+    sendChat();
+  }, 100);
+}
 
 // ── Settings ──────────────────────────────────────────────
 function populateSettingsForm(){document.getElementById('s-url').value=settings.apiUrl;document.getElementById('s-model').value=settings.model;document.getElementById('s-key').value=settings.apiKey;document.getElementById('s-sysprompt').value=settings.systemPrompt;}
