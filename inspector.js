@@ -14,6 +14,8 @@ let pollTimer = null;
 let filterText='', filterMethod='', filterType='', filterLevel='', filterConText='';
 let throttlePreset = 'none', consoleGrouped = false, expandedGroups = new Set();
 let replayResult = null, selectedSessions = new Set();
+let injectedHeaders = [], overrideRules = [];
+let editingCookie = null; // { name, domain } of cookie being edited, or null for new
 let settings = {
   apiUrl: 'http://localhost:11434/v1', model: '', apiKey: '',
   systemPrompt: 'You are an AI assistant integrated into a browser dev tool. Help developers understand network requests, console errors, security issues, and page behavior. Be concise, technical, and precise.',
@@ -76,6 +78,8 @@ function setupUI() {
   toolAction('tool-json', exportJSON);
   toolAction('tool-block', openBlockModal);
   toolAction('tool-mocks', openMocksModal);
+  toolAction('tool-overrides', openOverridesModal);
+  toolAction('tool-inject', openInjectModal);
   toolAction('tool-save', saveSession);
   toolAction('tool-sessions', openSessionsModal);
   toolAction('tool-clear', clearAll);
@@ -117,6 +121,25 @@ function setupUI() {
 
   // Console group toggle
   document.getElementById('con-group-btn').addEventListener('click', () => { consoleGrouped = !consoleGrouped; document.getElementById('con-group-btn').classList.toggle('on', consoleGrouped); renderConsole(); });
+
+  // Cookie modal
+  document.getElementById('ck-cancel').addEventListener('click', () => closeModal('cookie-modal'));
+  document.getElementById('ck-save').addEventListener('click', saveCookie);
+  document.getElementById('ck-delete').addEventListener('click', deleteCookie);
+
+  // Header injection modal
+  document.getElementById('hdr-cancel').addEventListener('click', () => closeModal('inject-modal'));
+  document.getElementById('hdr-add-btn').addEventListener('click', addInjectedHeader);
+  document.getElementById('hdr-clear-btn').addEventListener('click', () => { injectedHeaders = []; renderHdrList(); });
+  document.getElementById('hdr-apply-btn').addEventListener('click', applyInjectedHeaders);
+
+  // Overrides modal
+  document.getElementById('ov-cancel').addEventListener('click', () => closeModal('overrides-modal'));
+  document.getElementById('ov-add-btn').addEventListener('click', addOverrideRule);
+  document.getElementById('ov-apply-btn').addEventListener('click', applyOverrides);
+
+  // Timeline
+  document.getElementById('tl-refresh-btn').addEventListener('click', renderTimeline);
 
   // Replay modal
   document.getElementById('rp-close').addEventListener('click', () => closeModal('replay-modal'));
@@ -202,6 +225,8 @@ async function pollData() {
   ]);
   netRequests = nr.requests || []; consoleLogs = cr.logs || []; wsConnections = wr.connections || [];
   renderNetwork(); renderConsole(); renderWebSockets(); updateBadges(); updatePerfLive(); updateSecLive();
+  updateSparkline();
+  if (document.getElementById('panel-timeline').classList.contains('active')) renderTimeline();
 }
 async function clearAll() {
   if (targetTabId) await chrome.runtime.sendMessage({ type: 'INS_CLEAR', tabId: targetTabId });
@@ -342,6 +367,204 @@ async function setThrottle(preset) {
   const labels = { none: '🐢 Throttle', slow3g: '🐢 Slow 3G', fast3g: '🐢 Fast 3G', '4g': '🐢 4G' };
   btn.textContent = labels[preset] || '🐢 Throttle';
   btn.classList.toggle('throttle-on', preset !== 'none');
+}
+
+// ── Sparkline ─────────────────────────────────────────────
+function updateSparkline() {
+  const el = document.getElementById('sparkline');
+  const lbl = document.getElementById('spark-label');
+  const BUCKETS = 20, WINDOW = 20000; // 20 buckets over 20s
+  const now = Date.now();
+  const buckets = Array(BUCKETS).fill(0);
+  netRequests.forEach(r => {
+    const age = now - r.ts;
+    if (age < 0 || age > WINDOW) return;
+    const idx = Math.min(BUCKETS - 1, Math.floor(age / (WINDOW / BUCKETS)));
+    buckets[BUCKETS - 1 - idx]++;
+  });
+  const max = Math.max(...buckets, 1);
+  const recent = buckets[BUCKETS - 1];
+  el.innerHTML = buckets.map(v => {
+    const pct = Math.max(5, Math.round(v / max * 100));
+    return `<div class="spark-bar${v > max * 0.7 ? ' hot' : ''}" style="height:${pct}%" title="${v} req"></div>`;
+  }).join('');
+  lbl.textContent = capturing ? `${recent}/s` : '';
+}
+
+// ── Timeline (Gantt) ──────────────────────────────────────
+const TYPE_COLORS = { XHR:'tl-type-xhr', Fetch:'tl-type-fetch', Document:'tl-type-document', Script:'tl-type-script', Stylesheet:'tl-type-stylesheet', Image:'tl-type-image' };
+function renderTimeline() {
+  const wrap = document.getElementById('tl-wrap');
+  const empty = document.getElementById('tl-empty');
+  const done = netRequests.filter(r => r.ts && r.doneAt);
+  if (!done.length) { empty.style.display=''; return; }
+  empty.style.display = 'none';
+
+  const tMin = Math.min(...done.map(r => r.ts));
+  const tMax = Math.max(...done.map(r => r.doneAt));
+  const span = tMax - tMin || 1;
+  const TICKS = 5;
+
+  // Axis
+  let axisHtml = '<div class="tl-axis">';
+  for (let i = 0; i <= TICKS; i++) {
+    const pct = i / TICKS * 100;
+    const ms = Math.round(span * i / TICKS);
+    axisHtml += `<div class="tl-tick" style="left:calc(${pct}% + ${pct < 5 ? 0 : pct > 95 ? -28 : -14}px)">${ms < 1000 ? ms+'ms' : (ms/1000).toFixed(1)+'s'}</div>`;
+  }
+  axisHtml += '</div>';
+
+  // Rows
+  const rows = done.map(r => {
+    const left = ((r.ts - tMin) / span * 100).toFixed(2);
+    const width = Math.max(0.3, ((r.doneAt - r.ts) / span * 100)).toFixed(2);
+    const cls = r.error ? 'tl-type-err' : (TYPE_COLORS[r.type] || 'tl-type-other');
+    const label = shortUrl(r.url) || r.url;
+    const duration = r.doneAt - r.ts;
+    return `<div class="tl-row">
+      <div class="tl-lbl" data-url="${esc(r.url)}" title="${esc(r.url)}">${esc(label)}</div>
+      <div class="tl-track">
+        <div class="tl-bar ${cls}" style="left:${left}%;width:${width}%" title="${esc(r.method)} ${esc(r.url)}\n${r.status||'?'} · ${duration}ms · ${fmtSize(r.size)}"></div>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Legend
+  const types = [...new Set(done.map(r => r.type||'Other'))];
+  const legend = types.map(t => `<div class="tl-leg-item"><div class="tl-leg-dot ${TYPE_COLORS[t]||'tl-type-other'}"></div>${esc(t||'Other')}</div>`).join('');
+
+  wrap.innerHTML = axisHtml + rows + `<div class="tl-legend">${legend}</div>`;
+  wrap.querySelectorAll('.tl-lbl[data-url]').forEach(el => el.addEventListener('click', () => {
+    filterText = el.dataset.url; document.getElementById('net-filter').value = filterText;
+    expandedRow = null; switchTab('network'); renderNetwork();
+  }));
+}
+
+// ── Cookie Editor ─────────────────────────────────────────
+function openCookieEditor(item) {
+  if (!capturing) { alert('Start capture first.'); return; }
+  editingCookie = item ? item : null;
+  const title = document.getElementById('cookie-modal-title');
+  const delBtn = document.getElementById('ck-delete');
+  if (item) {
+    let parsed = {};
+    try { parsed = JSON.parse(item.value); } catch {}
+    title.textContent = '🍪 Edit Cookie';
+    document.getElementById('ck-name').value = item.key;
+    document.getElementById('ck-value').value = parsed.value || item.value;
+    document.getElementById('ck-domain').value = parsed.domain || '';
+    document.getElementById('ck-path').value = parsed.path || '/';
+    document.getElementById('ck-expires').value = '';
+    document.getElementById('ck-secure').checked = parsed.secure || false;
+    document.getElementById('ck-httponly').checked = parsed.httpOnly || false;
+    delBtn.style.display = '';
+  } else {
+    title.textContent = '🍪 New Cookie';
+    ['ck-name','ck-value','ck-domain','ck-expires'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('ck-path').value = '/';
+    document.getElementById('ck-secure').checked = false;
+    document.getElementById('ck-httponly').checked = false;
+    delBtn.style.display = 'none';
+  }
+  openModal('cookie-modal');
+}
+async function saveCookie() {
+  const name = document.getElementById('ck-name').value.trim();
+  const value = document.getElementById('ck-value').value;
+  const domain = document.getElementById('ck-domain').value.trim();
+  const path = document.getElementById('ck-path').value || '/';
+  const expiresRaw = document.getElementById('ck-expires').value;
+  if (!name) { alert('Name is required.'); return; }
+  const cookie = { name, value, domain: domain || undefined, path, secure: document.getElementById('ck-secure').checked, httpOnly: document.getElementById('ck-httponly').checked };
+  if (expiresRaw) cookie.expires = parseFloat(expiresRaw);
+  if (!cookie.domain) {
+    try { const u = new URL(document.getElementById('tab-url').textContent); cookie.url = u.origin; } catch {}
+  }
+  const r = await chrome.runtime.sendMessage({ type: 'INS_COOKIE_SET', tabId: targetTabId, cookie });
+  if (!r.ok) { alert('Failed: ' + r.error); return; }
+  closeModal('cookie-modal'); await refreshStorage();
+}
+async function deleteCookie() {
+  if (!editingCookie) return;
+  let domain = '';
+  try { domain = JSON.parse(editingCookie.value).domain; } catch {}
+  const r = await chrome.runtime.sendMessage({ type: 'INS_COOKIE_DEL', tabId: targetTabId, name: editingCookie.key, domain });
+  if (!r.ok) { alert('Failed: ' + r.error); return; }
+  closeModal('cookie-modal'); await refreshStorage();
+}
+
+// ── Header Injection ──────────────────────────────────────
+async function openInjectModal() {
+  if (targetTabId) {
+    const r = await chrome.runtime.sendMessage({ type: 'INS_INJECT_HEADERS_GET', tabId: targetTabId });
+    injectedHeaders = r.headers || [];
+  }
+  renderHdrList(); openModal('inject-modal');
+}
+function renderHdrList() {
+  const el = document.getElementById('hdr-list');
+  if (!injectedHeaders.length) { el.innerHTML = '<div style="color:var(--muted);font-size:11px">No headers — add one below.</div>'; return; }
+  el.innerHTML = injectedHeaders.map((h, i) =>
+    `<div class="hdr-row" data-i="${i}">
+      <input type="text" class="hdr-name" value="${esc(h.name)}" placeholder="Header-Name" style="flex:0 0 42%">
+      <input type="text" class="hdr-val" value="${esc(h.value)}" placeholder="value">
+      <button class="hdr-rm" data-i="${i}">✕</button>
+    </div>`
+  ).join('');
+  el.querySelectorAll('.hdr-rm').forEach(btn => btn.addEventListener('click', () => { injectedHeaders.splice(parseInt(btn.dataset.i), 1); renderHdrList(); }));
+}
+function addInjectedHeader() {
+  injectedHeaders.push({ name: '', value: '' }); renderHdrList();
+  const inputs = document.querySelectorAll('#hdr-list .hdr-name');
+  inputs[inputs.length - 1]?.focus();
+}
+async function applyInjectedHeaders() {
+  if (!targetTabId) { alert('No tab.'); return; }
+  if (!capturing) { alert('Start capture first.'); return; }
+  // Read current values from inputs
+  const rows = document.querySelectorAll('#hdr-list .hdr-row');
+  injectedHeaders = [...rows].map(row => ({ name: row.querySelector('.hdr-name').value.trim(), value: row.querySelector('.hdr-val').value })).filter(h => h.name);
+  const r = await chrome.runtime.sendMessage({ type: 'INS_INJECT_HEADERS_SET', tabId: targetTabId, headers: injectedHeaders });
+  if (r.ok) {
+    const btn = document.getElementById('intercept-btn');
+    document.getElementById('inject-modal').querySelector('h3').textContent = injectedHeaders.length ? `💉 Inject Headers (${injectedHeaders.length} active)` : '💉 Inject Headers';
+    alert(`${injectedHeaders.length} header(s) will be injected into every request.`);
+    closeModal('inject-modal');
+  } else alert('Error: ' + r.error);
+}
+
+// ── Local Overrides ───────────────────────────────────────
+async function openOverridesModal() {
+  const r = await chrome.runtime.sendMessage({ type: 'INS_OVERRIDE_GET', tabId: targetTabId || 0 });
+  overrideRules = r.overrides || [];
+  renderOverrideList(); openModal('overrides-modal');
+}
+function renderOverrideList() {
+  const el = document.getElementById('ov-list');
+  if (!overrideRules.length) { el.innerHTML = '<div style="color:var(--muted);font-size:11px;padding:4px">No overrides — requests pass through normally.</div>'; return; }
+  el.innerHTML = overrideRules.map((m, i) =>
+    `<div class="mock-item">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span class="mock-pat">${esc(m.pattern)}</span>
+        <button class="mock-del" data-i="${i}">✕ Remove</button>
+      </div>
+      <div style="font-size:10px;color:var(--muted)">${m.status} ${esc(m.contentType)} · ${(m.body||'').slice(0,60)}${(m.body||'').length>60?'…':''}</div>
+    </div>`
+  ).join('');
+  el.querySelectorAll('.mock-del').forEach(btn => btn.addEventListener('click', () => { overrideRules.splice(parseInt(btn.dataset.i), 1); renderOverrideList(); }));
+}
+function addOverrideRule() {
+  const pattern = document.getElementById('ov-pattern').value.trim();
+  if (!pattern) { alert('Enter a URL pattern.'); return; }
+  overrideRules.push({ pattern, status: parseInt(document.getElementById('ov-status').value) || 200, contentType: document.getElementById('ov-ctype').value || 'application/json', body: document.getElementById('ov-body').value });
+  document.getElementById('ov-pattern').value = ''; document.getElementById('ov-body').value = '';
+  renderOverrideList();
+}
+async function applyOverrides() {
+  if (!targetTabId) { alert('No tab selected.'); return; }
+  const r = await chrome.runtime.sendMessage({ type: 'INS_OVERRIDE_SET', tabId: targetTabId, overrides: overrideRules });
+  if (r.ok) { alert(`${overrideRules.length} override(s) saved. They persist across sessions.`); closeModal('overrides-modal'); }
+  else alert('Error: ' + r.error);
 }
 
 // ── Request Replay ────────────────────────────────────────
@@ -819,9 +1042,11 @@ function renderNetwork() {
     </tr>`);
     if (exp) {
       const gql = isGraphQL(r);
+      const hasRedirects = r.redirectChain?.length > 0;
       const tabs = ['response-body','request-body','req-headers','res-headers'];
       if (gql) tabs.splice(1, 0, 'graphql');
-      const tabLabels = {'response-body':'Response','request-body':'Req Body','req-headers':'Req Headers','res-headers':'Res Headers','graphql':'GraphQL'};
+      if (hasRedirects) tabs.push('redirects');
+      const tabLabels = {'response-body':'Response','request-body':'Req Body','req-headers':'Req Headers','res-headers':'Res Headers','graphql':'GraphQL','redirects':`Redirects (${r.redirectChain?.length||0})`};
       rows.push(`<tr class="det-row"><td colspan="7"><div class="det-pane">
         <div class="det-tabs">
           ${tabs.map(t=>`<div class="d-t ${expandedDTab===t?'active':''}" data-dt="${t}" data-id="${esc(r.id)}">${tabLabels[t]}${t==='graphql'?'<span class="gql-badge">GQL</span>':''}</div>`).join('')}
@@ -845,6 +1070,13 @@ function getDetContent(r, tab) {
   if (tab==='req-headers') return r.requestHeaders ? esc(Object.entries(r.requestHeaders).map(([k,v])=>`${k}: ${v}`).join('\n')) : '(none)';
   if (tab==='res-headers') return r.responseHeaders ? esc(Object.entries(r.responseHeaders).map(([k,v])=>`${k}: ${v}`).join('\n')) : '(none)';
   if (tab==='graphql') return renderGraphQL(r);
+  if (tab==='redirects') {
+    if (!r.redirectChain?.length) return '<span style="color:var(--muted)">No redirects</span>';
+    return '<div class="redir-chain">' +
+      r.redirectChain.map((hop, i) => `<div class="redir-hop"><div class="redir-hop-num">${i+1}</div><div class="redir-hop-url" title="${esc(hop.url)}">${esc(hop.url)}</div><div class="redir-hop-status">${hop.status}</div></div>`).join('') +
+      `<div class="redir-hop"><div class="redir-hop-num" style="background:var(--green);color:#000">↓</div><div class="redir-hop-url redir-final" title="${esc(r.url)}">${esc(r.url)}</div><div class="redir-hop-status" style="color:var(--green)">${r.status||'?'}</div></div>` +
+      '</div>';
+  }
   return '';
 }
 function buildCurl(r) {
@@ -956,8 +1188,26 @@ function renderStorage() {
   const vis=visibleStorItems();
   if (!storageItems.length) { tbody.innerHTML=''; empty.style.display=''; return; }
   empty.style.display='none';
-  tbody.innerHTML = vis.map((item,i) => `<tr class="${selectedStorItems.has(i)?'sel':''}" data-idx="${i}"><td style="text-align:center"><input type="checkbox" data-idx="${i}" ${selectedStorItems.has(i)?'checked':''}></td><td title="${esc(item.key)}">${esc(item.key)}</td><td title="${esc(item.value)}">${esc(item.value.slice(0,200))}</td></tr>`).join('');
+  const isCookies = storageType === 'cookies';
+  tbody.innerHTML = vis.map((item,i) => `<tr class="${selectedStorItems.has(i)?'sel':''}" data-idx="${i}">
+    <td style="text-align:center"><input type="checkbox" data-idx="${i}" ${selectedStorItems.has(i)?'checked':''}></td>
+    <td title="${esc(item.key)}">${esc(item.key)}</td>
+    <td title="${esc(item.value)}">${esc(item.value.slice(0,200))}</td>
+    ${isCookies ? `<td style="width:56px;text-align:right"><button class="mock-del ck-edit-btn" data-i="${i}" style="font-size:10px;padding:1px 5px;border:1px solid var(--border);border-radius:3px;color:var(--muted)">Edit</button></td>` : ''}
+  </tr>`).join('');
   tbody.querySelectorAll('input[data-idx]').forEach(cb => cb.addEventListener('change', e => { e.stopPropagation(); const i=parseInt(cb.dataset.idx); if(cb.checked) selectedStorItems.add(i); else selectedStorItems.delete(i); cb.closest('tr').classList.toggle('sel',cb.checked); updateStorSel(); }));
+  if (isCookies) {
+    tbody.querySelectorAll('.ck-edit-btn').forEach(btn => btn.addEventListener('click', e => { e.stopPropagation(); openCookieEditor(vis[parseInt(btn.dataset.i)]); }));
+    // Add cookie button in filter bar
+    let addBtn = document.getElementById('ck-add-btn');
+    if (!addBtn) {
+      addBtn = document.createElement('button');
+      addBtn.id = 'ck-add-btn'; addBtn.className = 'tb-btn'; addBtn.style.cssText = 'padding:3px 8px;font-size:11px';
+      addBtn.textContent = '+ New Cookie';
+      addBtn.addEventListener('click', () => openCookieEditor(null));
+      document.getElementById('stor-refresh-btn').after(addBtn);
+    }
+  } else { document.getElementById('ck-add-btn')?.remove(); }
   updateStorSel();
 }
 function updateStorSel() { const c=selectedStorItems.size; document.getElementById('stor-sel-count').textContent=c?`${c} selected`:''; document.getElementById('ask-stor-btn').disabled=!c; }
@@ -977,6 +1227,7 @@ function switchTab(name) {
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===name));
   document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active',p.id==='panel-'+name));
   if (name==='performance') renderPerfPanel();
+  if (name==='timeline') renderTimeline();
 }
 
 // ── Send to Chat ──────────────────────────────────────────
