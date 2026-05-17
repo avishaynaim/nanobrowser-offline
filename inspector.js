@@ -20,6 +20,7 @@ let baselineSession = null, networkPaused = false;
 let alertRules = [], budgetRules = {}, filterPresets = [], annotations = {}, requestTags = {};
 let historyData = [], dedupMode = false, annotatingId = null;
 const alertedIds = new Set(); // tracks fired alerts so they don't repeat every poll
+let budgetAlerted = false; // tracks whether budget-exceeded toast has fired since last clear
 let fontScale = 12, isLightTheme = false;
 const TAG_COLORS = { red:'#f44747', orange:'#ce9178', yellow:'#dcdcaa', green:'#4ec9b0', blue:'#569cd6', purple:'#c586c0', none:'' };
 let settings = {
@@ -240,7 +241,7 @@ function setupUI() {
 
   // Storage
   document.getElementById('stor-type-filter').addEventListener('change', e => { storageType = e.target.value; storageItems = []; selectedStorItems.clear(); renderStorage(); });
-  document.getElementById('stor-filter').addEventListener('input', renderStorage);
+  document.getElementById('stor-filter').addEventListener('input', () => { selectedStorItems.clear(); renderStorage(); });
   document.getElementById('stor-refresh-btn').addEventListener('click', refreshStorage);
   document.getElementById('stor-select-all').addEventListener('change', e => { const v = visibleStorItems(); if (e.target.checked) v.forEach((_, i) => selectedStorItems.add(i)); else selectedStorItems.clear(); renderStorage(); updateStorSel(); });
   document.getElementById('ask-stor-btn').addEventListener('click', () => sendToChat('storage'));
@@ -326,7 +327,7 @@ async function clearAll() {
   netRequests = []; consoleLogs = []; wsConnections = []; storageItems = [];
   selectedRequests.clear(); selectedLogs.clear(); selectedWsFrames = []; selectedStorItems.clear();
   expandedRow = null; expandedWsConn = null; lastReplResult = null;
-  alertedIds.clear();
+  alertedIds.clear(); budgetAlerted = false; historyData = [];
   renderNetwork(); renderConsole(); renderWebSockets(); renderStorage();
   document.getElementById('perf-empty').style.display = ''; document.getElementById('perf-wrap').querySelectorAll(':not(#perf-empty)').forEach(e => e.remove());
   document.getElementById('sec-empty').style.display = ''; document.getElementById('sec-wrap').querySelectorAll(':not(#sec-empty)').forEach(e => e.remove());
@@ -371,7 +372,7 @@ async function saveSession() {
   const name = prompt('Session name:', new Date().toLocaleString());
   if (!name) return;
   const { 'inspector-sessions': existing = [] } = await chrome.storage.local.get('inspector-sessions');
-  const sessions = [{ id: Date.now(), name, ts: Date.now(), requests: netRequests.slice(), console: consoleLogs.slice(), ws: wsConnections.map(c => ({ ...c })) }, ...existing].slice(0, 15);
+  const sessions = [{ id: Date.now(), name, ts: Date.now(), requests: netRequests.slice(), console: consoleLogs.slice(), ws: wsConnections.map(c => ({ ...c, frames: c.frames.slice() })) }, ...existing].slice(0, 15);
   await chrome.storage.local.set({ 'inspector-sessions': sessions });
   alert(`Session "${name}" saved (${netRequests.length} requests, ${consoleLogs.length} logs).`);
 }
@@ -424,13 +425,14 @@ async function openSessionsModal() {
 }
 
 function diffSessions(a, b) {
-  const aUrls = new Map((a.requests||[]).map(r => [r.url, r]));
-  const bUrls = new Map((b.requests||[]).map(r => [r.url, r]));
+  const reqKey = r => (r.method || 'GET') + '|' + r.url;
+  const aUrls = new Map((a.requests||[]).map(r => [reqKey(r), r]));
+  const bUrls = new Map((b.requests||[]).map(r => [reqKey(r), r]));
   const added = [], removed = [], changed = [];
-  for (const [url, rb] of bUrls) { if (!aUrls.has(url)) added.push(rb); }
-  for (const [url, ra] of aUrls) {
-    if (!bUrls.has(url)) { removed.push(ra); continue; }
-    const rb = bUrls.get(url);
+  for (const [key, rb] of bUrls) { if (!aUrls.has(key)) added.push(rb); }
+  for (const [key, ra] of aUrls) {
+    if (!bUrls.has(key)) { removed.push(ra); continue; }
+    const rb = bUrls.get(key);
     if (ra.status !== rb.status) changed.push({ url, from: ra.status, to: rb.status });
   }
   const aErrs = new Set((a.console||[]).filter(l=>l.level==='error').map(l=>l.text));
@@ -548,7 +550,7 @@ function openCookieEditor(item) {
     document.getElementById('ck-value').value = parsed.value || item.value;
     document.getElementById('ck-domain').value = parsed.domain || '';
     document.getElementById('ck-path').value = parsed.path || '/';
-    document.getElementById('ck-expires').value = '';
+    document.getElementById('ck-expires').value = (parsed.expires && parsed.expires > 0) ? new Date(parsed.expires * 1000).toISOString().slice(0, 16) : '';
     document.getElementById('ck-secure').checked = parsed.secure || false;
     document.getElementById('ck-httponly').checked = parsed.httpOnly || false;
     delBtn.style.display = '';
@@ -620,7 +622,6 @@ async function applyInjectedHeaders() {
   injectedHeaders = [...rows].map(row => ({ name: row.querySelector('.hdr-name').value.trim(), value: row.querySelector('.hdr-val').value })).filter(h => h.name);
   const r = await chrome.runtime.sendMessage({ type: 'INS_INJECT_HEADERS_SET', tabId: targetTabId, headers: injectedHeaders });
   if (r.ok) {
-    const btn = document.getElementById('intercept-btn');
     document.getElementById('inject-modal').querySelector('h3').textContent = injectedHeaders.length ? `💉 Inject Headers (${injectedHeaders.length} active)` : '💉 Inject Headers';
     alert(`${injectedHeaders.length} header(s) will be injected into every request.`);
     closeModal('inject-modal');
@@ -801,7 +802,7 @@ function exportHAR() {
   dl(JSON.stringify({log:{version:'1.2',creator:{name:'AI Inspector',version:'1.0'},entries}},null,2), 'capture.har');
 }
 function exportJSON() { dl(JSON.stringify({requests:netRequests,console:consoleLogs,websockets:wsConnections},null,2), 'capture.json'); }
-function hdrs2arr(h) { return Object.entries(h||{}).map(([name,value])=>({name,value})); }
+function hdrs2arr(h) { return Object.entries(h||{}).flatMap(([name,value])=>Array.isArray(value)?value.map(v=>({name,value:String(v)})):[{name,value:String(value)}]); }
 function dl(text, filename) { const url = URL.createObjectURL(new Blob([text],{type:'application/json'})); Object.assign(document.createElement('a'),{href:url,download:filename}).click(); URL.revokeObjectURL(url); }
 
 // ── REPL ──────────────────────────────────────────────────
@@ -1005,7 +1006,9 @@ async function autoScan() {
   if (!settings.model) { alert('Configure a model in ⚙ settings first.'); return; }
   if (!netRequests.length && !consoleLogs.length) { alert('Nothing captured yet. Start capture and browse the page first.'); return; }
 
-  switchTab('chat'); chatContext = []; chatHistory = [];
+  switchTab('chat'); chatContext = [];
+  if (targetTabId) chrome.storage.local.remove('inspector-chat-history-' + targetTabId);
+  chatHistory = [];
   document.getElementById('chat-msgs').innerHTML = '';
 
   const summary = [
@@ -1040,13 +1043,14 @@ Be specific — reference actual URLs and data from the context.`;
   appendChatMsg('user', `🤖 Auto-scanning ${netRequests.length} requests + ${consoleLogs.length} console entries...`);
   setGenerating(true);
 
+  if (chatPort) { chatPort.disconnect(); chatPort = null; }
   chatPort = chrome.runtime.connect({ name: 'inspector-chat' });
   let assistantContent = '', bubble = null;
   chatPort.onMessage.addListener(msg => {
     if (msg.type === 'CHUNK') { if (!bubble) bubble = appendStreamBubble(); assistantContent += msg.content; renderBubble(bubble, assistantContent); }
     else if (msg.type === 'DONE' || msg.type === 'ERROR') {
       if (msg.type === 'ERROR') appendChatMsg('assistant', `⚠ ${msg.error}`);
-      if (assistantContent) chatHistory.push({ role: 'assistant', content: assistantContent });
+      if (assistantContent) { chatHistory.push({ role: 'assistant', content: assistantContent }); chrome.storage.local.set({['inspector-chat-history-'+targetTabId]: chatHistory.slice(-40)}); }
       setGenerating(false); chatPort = null;
     }
   });
@@ -1058,7 +1062,9 @@ Be specific — reference actual URLs and data from the context.`;
 async function generateFix(title, detail) {
   if (!settings.model) { alert('Configure a model in ⚙ settings first.'); return; }
   switchTab('chat');
-  chatContext = []; chatHistory = [];
+  chatContext = [];
+  if (targetTabId) chrome.storage.local.remove('inspector-chat-history-' + targetTabId);
+  chatHistory = [];
   document.getElementById('chat-msgs').innerHTML = '';
 
   const prompt = `I found this security issue in a web application:\n\n**${title}**\nDetail: ${detail}\n\nPlease provide:\n1. A concise explanation of why this is a security risk\n2. A concrete code fix (server-side or client-side as appropriate)\n3. Any additional hardening recommendations\n\nBe specific and provide actual code examples.`;
@@ -1066,13 +1072,14 @@ async function generateFix(title, detail) {
   appendChatMsg('user', `🔐 Generate fix for: ${title}`);
   setGenerating(true);
 
+  if (chatPort) { chatPort.disconnect(); chatPort = null; }
   chatPort = chrome.runtime.connect({ name: 'inspector-chat' });
   let assistantContent = '', bubble = null;
   chatPort.onMessage.addListener(msg => {
     if (msg.type === 'CHUNK') { if (!bubble) bubble = appendStreamBubble(); assistantContent += msg.content; renderBubble(bubble, assistantContent); }
     else if (msg.type === 'DONE' || msg.type === 'ERROR') {
       if (msg.type === 'ERROR') appendChatMsg('assistant', `⚠ ${msg.error}`);
-      if (assistantContent) chatHistory.push({ role: 'assistant', content: assistantContent });
+      if (assistantContent) { chatHistory.push({ role: 'assistant', content: assistantContent }); chrome.storage.local.set({['inspector-chat-history-'+targetTabId]: chatHistory.slice(-40)}); }
       setGenerating(false); chatPort = null;
     }
   });
@@ -1293,7 +1300,7 @@ function renderWebSockets() {
     const isOpen = expandedWsConn === conn.id;
     const frames = conn.frames.filter(f => !fd||f.dir===fd);
     const frHtml = frames.map((f,fi) => { const sel=selectedWsFrames.some(s=>s.connId===conn.id&&s.frameIdx===fi); return `<div class="ws-frame"><input type="checkbox" data-cid="${esc(conn.id)}" data-fi="${fi}" ${sel?'checked':''}><span class="ws-dir ${f.dir}">${f.dir==='sent'?'↑':'↓'}</span><div class="ws-data">${esc(tryPrettyWs(f.data))}</div><span class="ws-ts">${fmtTime(f.ts)}</span></div>`; }).join('');
-    return `<div class="ws-conn ${isOpen?'open':''}" data-id="${esc(conn.id)}"><div class="ws-hdr"><div class="ws-dot ${conn.closed?'closed':''}"></div><span class="ws-url" title="${esc(conn.url)}">${esc(conn.url)}</span><span class="ws-meta">${conn.frames.length} frames ${conn.closed?'· closed':'· open'}</span>${!conn.closed?`<button class="d-curl" data-wsurl="${esc(conn.url)}" style="margin-left:8px;padding:1px 7px" onclick="event.stopPropagation()">📤 Send</button>`:''}</div><div class="ws-frames">${frHtml||'<div style="color:var(--muted);font-size:11px;padding:4px">No frames</div>'}</div></div>`;
+    return `<div class="ws-conn ${isOpen?'open':''}" data-id="${esc(conn.id)}"><div class="ws-hdr"><div class="ws-dot ${conn.closed?'closed':''}"></div><span class="ws-url" title="${esc(conn.url)}">${esc(conn.url)}</span><span class="ws-meta">${conn.frames.length} frames ${conn.closed?'· closed':'· open'}</span>${!conn.closed?`<button class="d-curl" data-wsurl="${esc(conn.url)}" style="margin-left:8px;padding:1px 7px">📤 Send</button>`:''}</div><div class="ws-frames">${frHtml||'<div style="color:var(--muted);font-size:11px;padding:4px">No frames</div>'}</div></div>`;
   }).join('');
   list.querySelectorAll('.ws-hdr').forEach(h => h.addEventListener('click', e => { if(e.target.classList.contains('d-curl')) return; const id=h.closest('.ws-conn').dataset.id; expandedWsConn=expandedWsConn===id?null:id; renderWebSockets(); }));
   list.querySelectorAll('[data-wsurl]').forEach(btn => btn.addEventListener('click', () => openWsSender(btn.dataset.wsurl)));
@@ -1311,7 +1318,7 @@ async function refreshStorage() {
   try {
     if (storageType==='cookies') {
       const r = await chrome.runtime.sendMessage({type:'INS_COOKIES',tabId:targetTabId});
-      storageItems = r.ok ? r.cookies.map(c=>({key:c.name,value:JSON.stringify({value:c.value,domain:c.domain,path:c.path,httpOnly:c.httpOnly,secure:c.secure})})) : [{key:'Error',value:r.error}];
+      storageItems = r.ok ? r.cookies.map(c=>({key:c.name,value:JSON.stringify({value:c.value,domain:c.domain,path:c.path,httpOnly:c.httpOnly,secure:c.secure,expires:c.expires})})) : [{key:'Error',value:r.error}];
     } else {
       const r = await chrome.runtime.sendMessage({type:'INS_STORAGE',tabId:targetTabId});
       storageItems = r.ok ? (storageType==='local'?r.storage.local:r.storage.session).map(([k,v])=>({key:k,value:v})) : [{key:'Error',value:r.error}];
@@ -1428,6 +1435,7 @@ async function sendChat() {
   chatContext=[]; renderCtxBar(); setGenerating(true);
   const messages=[{role:'system',content:settings.systemPrompt},...chatHistory];
   let ac='', bubble=null;
+  if (chatPort) { chatPort.disconnect(); chatPort = null; }
   chatPort = chrome.runtime.connect({name:'inspector-chat'});
   chatPort.onMessage.addListener(msg=>{
     if(msg.type==='CHUNK'){if(!bubble)bubble=appendStreamBubble();ac+=msg.content;renderBubble(bubble,ac);}
@@ -1556,7 +1564,9 @@ function buildFetchCode(r) {
   const opts = { method: r.method };
   if (r.requestHeaders && Object.keys(r.requestHeaders).length) opts.headers = r.requestHeaders;
   if (r.requestBody) opts.body = r.requestBody;
-  return `fetch(${JSON.stringify(r.url)}, ${JSON.stringify(opts, null, 2)})\n  .then(r => r.json())\n  .then(console.log)\n  .catch(console.error);`;
+  const isJson = (r.mimeType||'').includes('json') || Object.entries(r.responseHeaders||{}).some(([k,v])=>k.toLowerCase()==='content-type'&&String(v).includes('json'));
+  const bodyHandler = isJson ? '.then(r => r.json())' : '.then(r => r.text())';
+  return `fetch(${JSON.stringify(r.url)}, ${JSON.stringify(opts, null, 2)})\n  ${bodyHandler}\n  .then(console.log)\n  .catch(console.error);`;
 }
 
 // ── JSON Tree Viewer ──────────────────────────────────────
@@ -1611,6 +1621,7 @@ function renderBudgetStatus() {
 async function saveBudget() {
   budgetRules = { reqs: parseInt(document.getElementById('bdg-reqs').value)||0, size: parseInt(document.getElementById('bdg-size').value)||0, errs: parseInt(document.getElementById('bdg-errs').value)||0, slow: parseInt(document.getElementById('bdg-slow').value)||0 };
   await chrome.storage.local.set({ 'inspector-budget': budgetRules });
+  budgetAlerted = false;
   renderBudgetStatus(); showToast('💰 Budget saved');
 }
 function checkBudget() {
@@ -1619,11 +1630,14 @@ function checkBudget() {
   const totalKB = Math.round(done.reduce((s,r)=>s+(r.size||0),0)/1024);
   const errs = done.filter(r=>r.error||r.status>=400).length;
   const slow = done.filter(r=>r.ttfb>1000).length;
-  if ((budgetRules.reqs && done.length > budgetRules.reqs) ||
+  const exceeded = (budgetRules.reqs && done.length > budgetRules.reqs) ||
       (budgetRules.size && totalKB > budgetRules.size) ||
       (budgetRules.errs !== undefined && errs > budgetRules.errs) ||
-      (budgetRules.slow !== undefined && slow > budgetRules.slow)) {
-    showToast(`💰 Budget exceeded — ${done.length} req, ${totalKB}KB, ${errs} errors`, 'alert');
+      (budgetRules.slow !== undefined && slow > budgetRules.slow);
+  if (exceeded) {
+    if (!budgetAlerted) { budgetAlerted = true; showToast(`💰 Budget exceeded — ${done.length} req, ${totalKB}KB, ${errs} errors`, 'alert'); }
+  } else {
+    budgetAlerted = false;
   }
 }
 
