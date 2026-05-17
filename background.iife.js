@@ -100716,7 +100716,7 @@ ${sourceUrlComment}
 
   function getStore(tabId) {
     if (!captureStore.has(tabId)) {
-      captureStore.set(tabId, { requests: new Map(), console: [], attached: false });
+      captureStore.set(tabId, { requests: new Map(), console: [], attached: false, ws: new Map() });
     }
     return captureStore.get(tabId);
   }
@@ -100817,6 +100817,22 @@ ${sourceUrlComment}
       store.console.push({ level: m.level, text: m.text, url: m.url, line: m.line, ts: Date.now() });
       if (store.console.length > MAX_LOG) store.console.splice(0, store.console.length - MAX_LOG);
     }
+
+    else if (method === 'Network.webSocketCreated') {
+      store.ws.set(params.requestId, { id: params.requestId, url: params.url, frames: [], closed: false, ts: Date.now() });
+    }
+    else if (method === 'Network.webSocketFrameSent') {
+      const conn = store.ws.get(params.requestId);
+      if (conn) conn.frames.push({ dir: 'sent', opcode: params.response?.opcode, data: (params.response?.payloadData || '').slice(0, 20000), ts: Date.now() });
+    }
+    else if (method === 'Network.webSocketFrameReceived') {
+      const conn = store.ws.get(params.requestId);
+      if (conn) conn.frames.push({ dir: 'recv', opcode: params.response?.opcode, data: (params.response?.payloadData || '').slice(0, 20000), ts: Date.now() });
+    }
+    else if (method === 'Network.webSocketClosed') {
+      const conn = store.ws.get(params.requestId);
+      if (conn) conn.closed = true;
+    }
   });
 
   // Detach when tab closes
@@ -100853,8 +100869,37 @@ ${sourceUrlComment}
         }
         case 'INS_CLEAR': {
           const store = captureStore.get(tabId);
-          if (store) { store.requests.clear(); store.console = []; }
+          if (store) { store.requests.clear(); store.console = []; store.ws.clear(); }
           reply({ ok: true });
+          break;
+        }
+        case 'INS_WS': {
+          const store = captureStore.get(tabId);
+          reply({ connections: store ? [...store.ws.values()] : [] });
+          break;
+        }
+        case 'INS_STORAGE': {
+          try {
+            const results = await chrome.scripting.executeScript({
+              target: { tabId },
+              func: () => ({
+                local: Object.entries(localStorage),
+                session: Object.entries(sessionStorage),
+              }),
+            });
+            reply({ ok: true, storage: results?.[0]?.result || { local: [], session: [] } });
+          } catch (e) {
+            reply({ ok: false, error: e.message });
+          }
+          break;
+        }
+        case 'INS_COOKIES': {
+          try {
+            const r = await chrome.debugger.sendCommand({ tabId }, 'Network.getCookies');
+            reply({ ok: true, cookies: r.cookies || [] });
+          } catch (e) {
+            reply({ ok: false, error: e.message });
+          }
           break;
         }
         case 'INS_DOM': {
