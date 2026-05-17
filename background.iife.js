@@ -100702,3 +100702,249 @@ ${sourceUrlComment}
   }, Symbol.toStringTag, { value: "Module" }));
 })();
 //# sourceMappingURL=background.iife.js.map
+
+// ═══════════════════════════════════════════════════════
+// NETWORK & CONSOLE INSPECTOR — offline patch
+// Captures CDP Network + Console events per tab
+// ═══════════════════════════════════════════════════════
+(function () {
+  'use strict';
+
+  const captureStore = new Map(); // tabId -> { requests, console, attached }
+  const MAX_REQ = 300;
+  const MAX_LOG = 1000;
+
+  function getStore(tabId) {
+    if (!captureStore.has(tabId)) {
+      captureStore.set(tabId, { requests: new Map(), console: [], attached: false });
+    }
+    return captureStore.get(tabId);
+  }
+
+  async function attachInspector(tabId) {
+    const store = getStore(tabId);
+    if (store.attached) return { ok: true };
+    try {
+      await chrome.debugger.attach({ tabId }, '1.3');
+    } catch (e) {
+      if (!e.message?.includes('already attached')) {
+        return { ok: false, error: e.message };
+      }
+      // Already attached by Nanobrowser automation — that's fine, share it
+    }
+    store.attached = true;
+    try {
+      await chrome.debugger.sendCommand({ tabId }, 'Network.enable', {
+        maxTotalBufferSize: 20 * 1024 * 1024,
+        maxResourceBufferSize: 5 * 1024 * 1024,
+        maxPostDataSize: 128 * 1024,
+      });
+      await chrome.debugger.sendCommand({ tabId }, 'Console.enable');
+    } catch (e) {
+      console.warn('[inspector] enable failed:', e.message);
+    }
+    return { ok: true };
+  }
+
+  async function detachInspector(tabId) {
+    const store = captureStore.get(tabId);
+    if (!store?.attached) return;
+    try { await chrome.debugger.detach({ tabId }); } catch {}
+    store.attached = false;
+  }
+
+  // CDP events
+  chrome.debugger.onEvent.addListener(async (source, method, params) => {
+    const tabId = source.tabId;
+    if (!tabId) return;
+    const store = getStore(tabId);
+
+    if (method === 'Network.requestWillBeSent') {
+      if (store.requests.size >= MAX_REQ) {
+        const oldest = store.requests.keys().next().value;
+        store.requests.delete(oldest);
+      }
+      store.requests.set(params.requestId, {
+        id: params.requestId,
+        url: params.request.url,
+        method: params.request.method,
+        type: params.type || '',
+        requestHeaders: params.request.headers,
+        requestBody: params.request.postData || null,
+        ts: Date.now(),
+        status: null,
+        statusText: null,
+        responseHeaders: null,
+        responseBody: null,
+        size: null,
+        error: null,
+        done: false,
+      });
+    }
+
+    else if (method === 'Network.responseReceived') {
+      const e = store.requests.get(params.requestId);
+      if (e) {
+        e.status = params.response.status;
+        e.statusText = params.response.statusText;
+        e.responseHeaders = params.response.headers;
+        e.mimeType = params.response.mimeType;
+      }
+    }
+
+    else if (method === 'Network.loadingFinished') {
+      const e = store.requests.get(params.requestId);
+      if (e) {
+        e.size = params.encodedDataLength;
+        e.done = true;
+        try {
+          const r = await chrome.debugger.sendCommand(
+            { tabId }, 'Network.getResponseBody', { requestId: params.requestId }
+          );
+          const body = r.base64Encoded ? atob(r.body) : (r.body || '');
+          e.responseBody = body.slice(0, 100000);
+        } catch {}
+      }
+    }
+
+    else if (method === 'Network.loadingFailed') {
+      const e = store.requests.get(params.requestId);
+      if (e) { e.error = params.errorText; e.done = true; }
+    }
+
+    else if (method === 'Console.messageAdded') {
+      const m = params.message;
+      store.console.push({ level: m.level, text: m.text, url: m.url, line: m.line, ts: Date.now() });
+      if (store.console.length > MAX_LOG) store.console.splice(0, store.console.length - MAX_LOG);
+    }
+  });
+
+  // Detach when tab closes
+  chrome.tabs.onRemoved.addListener(tabId => {
+    detachInspector(tabId);
+    captureStore.delete(tabId);
+  });
+
+  // Message API for inspector.html
+  chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
+    if (!msg.type?.startsWith('INS_')) return;
+    (async () => {
+      const { tabId } = msg;
+      switch (msg.type) {
+        case 'INS_ATTACH':
+          reply(await attachInspector(tabId));
+          break;
+        case 'INS_DETACH':
+          await detachInspector(tabId);
+          reply({ ok: true });
+          break;
+        case 'INS_STATUS':
+          reply({ attached: getStore(tabId).attached });
+          break;
+        case 'INS_NETWORK': {
+          const store = captureStore.get(tabId);
+          reply({ requests: store ? [...store.requests.values()] : [] });
+          break;
+        }
+        case 'INS_CONSOLE': {
+          const store = captureStore.get(tabId);
+          reply({ logs: store?.console || [] });
+          break;
+        }
+        case 'INS_CLEAR': {
+          const store = captureStore.get(tabId);
+          if (store) { store.requests.clear(); store.console = []; }
+          reply({ ok: true });
+          break;
+        }
+        case 'INS_DOM': {
+          try {
+            const results = await chrome.scripting.executeScript({
+              target: { tabId },
+              func: () => document.documentElement.outerHTML,
+            });
+            reply({ ok: true, html: results?.[0]?.result || '' });
+          } catch (e) {
+            reply({ ok: false, error: e.message });
+          }
+          break;
+        }
+      }
+    })();
+    return true; // async
+  });
+
+  console.log('[inspector] CDP capture module ready');
+})();
+
+// Inspector AI streaming chat port handler
+chrome.runtime.onConnect.addListener(port => {
+  if (port.name !== 'inspector-chat') return;
+
+  let abortCtrl = null;
+
+  port.onMessage.addListener(async msg => {
+    if (msg.type !== 'CHAT') return;
+    const { messages, settings } = msg.payload;
+    const { apiBaseUrl, apiKey, model } = settings || {};
+
+    if (!apiBaseUrl || !model) {
+      port.postMessage({ type: 'ERROR', error: 'No API base URL or model configured. Open Settings in the inspector.' });
+      return;
+    }
+
+    abortCtrl = new AbortController();
+    const url = apiBaseUrl.replace(/\/$/, '') + '/chat/completions';
+
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        signal: abortCtrl.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(apiKey ? { 'Authorization': 'Bearer ' + apiKey } : {}),
+        },
+        body: JSON.stringify({ model, messages, stream: true }),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => res.statusText);
+        port.postMessage({ type: 'ERROR', error: `API error ${res.status}: ${errText}` });
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop(); // keep incomplete last line
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed === 'data: [DONE]') continue;
+          if (!trimmed.startsWith('data: ')) continue;
+          try {
+            const json = JSON.parse(trimmed.slice(6));
+            const content = json.choices?.[0]?.delta?.content;
+            if (content) port.postMessage({ type: 'CHUNK', content });
+          } catch {}
+        }
+      }
+      port.postMessage({ type: 'DONE' });
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        port.postMessage({ type: 'ERROR', error: err.message || String(err) });
+      } else {
+        port.postMessage({ type: 'DONE' });
+      }
+    }
+  });
+
+  port.onDisconnect.addListener(() => {
+    if (abortCtrl) abortCtrl.abort();
+  });
+});
