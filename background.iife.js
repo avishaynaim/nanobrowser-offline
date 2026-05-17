@@ -41,17 +41,7 @@ var __superGet = (cls, obj, key) => __reflectGet(__getProtoOf(cls), key, obj);
       }
     }
     function initClient({ id, onUpdate }) {
-      const ws = new WebSocket(LOCAL_RELOAD_SOCKET_URL);
-      ws.onopen = () => {
-        ws.addEventListener("message", (event) => {
-          const message = MessageInterpreter.receive(String(event.data));
-          if (message.type === DO_UPDATE && message.id === id) {
-            onUpdate();
-            ws.send(MessageInterpreter.send({ type: DONE_UPDATE }));
-            return;
-          }
-        });
-      };
+      /* offline: HMR WebSocket disabled */
     }
     function addReload() {
       const reload = () => {
@@ -86,17 +76,7 @@ var __superGet = (cls, obj, key) => __reflectGet(__getProtoOf(cls), key, obj);
       }
     }
     function initClient({ id, onUpdate }) {
-      const ws = new WebSocket(LOCAL_RELOAD_SOCKET_URL);
-      ws.onopen = () => {
-        ws.addEventListener("message", (event) => {
-          const message = MessageInterpreter.receive(String(event.data));
-          if (message.type === DO_UPDATE && message.id === id) {
-            onUpdate();
-            ws.send(MessageInterpreter.send({ type: DONE_UPDATE }));
-            return;
-          }
-        });
-      };
+      /* offline: HMR WebSocket disabled */
     }
     function addReload() {
       const reload = () => {
@@ -131,17 +111,7 @@ var __superGet = (cls, obj, key) => __reflectGet(__getProtoOf(cls), key, obj);
       }
     }
     function initClient({ id, onUpdate }) {
-      const ws = new WebSocket(LOCAL_RELOAD_SOCKET_URL);
-      ws.onopen = () => {
-        ws.addEventListener("message", (event) => {
-          const message = MessageInterpreter.receive(String(event.data));
-          if (message.type === DO_UPDATE && message.id === id) {
-            onUpdate();
-            ws.send(MessageInterpreter.send({ type: DONE_UPDATE }));
-            return;
-          }
-        });
-      };
+      /* offline: HMR WebSocket disabled */
     }
     function addReload() {
       const reload = () => {
