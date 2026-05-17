@@ -100716,9 +100716,36 @@ ${sourceUrlComment}
 
   function getStore(tabId) {
     if (!captureStore.has(tabId)) {
-      captureStore.set(tabId, { requests: new Map(), console: [], attached: false, ws: new Map(), blockedUrls: [], interceptPort: null, mocks: [] });
+      captureStore.set(tabId, { requests: new Map(), console: [], attached: false, ws: new Map(), blockedUrls: [], interceptPort: null, mocks: [], injectedHeaders: [], overrides: [] });
     }
     return captureStore.get(tabId);
+  }
+
+  function fulfillRule(tabId, requestId, rule) {
+    const enc = new TextEncoder();
+    const bytes = enc.encode(rule.body || '');
+    let b64 = ''; const chunk = 8192;
+    for (let i = 0; i < bytes.length; i += chunk) b64 += String.fromCharCode(...bytes.subarray(i, i + chunk));
+    chrome.debugger.sendCommand({ tabId }, 'Fetch.fulfillRequest', {
+      requestId, responseCode: rule.status || 200,
+      responseHeaders: [{name:'Content-Type',value:rule.contentType||'application/json'},{name:'Access-Control-Allow-Origin',value:'*'}],
+      body: btoa(b64),
+    }).catch(() => {});
+  }
+
+  function continueWithInjected(tabId, requestId, params, injectedHeaders) {
+    if (!injectedHeaders || !injectedHeaders.length) {
+      chrome.debugger.sendCommand({ tabId }, 'Fetch.continueRequest', { requestId }).catch(() => {});
+      return;
+    }
+    const existing = params.request?.headers || {};
+    const merged = Object.entries(existing).map(([name, value]) => ({ name, value }));
+    injectedHeaders.forEach(h => {
+      const idx = merged.findIndex(e => e.name.toLowerCase() === h.name.toLowerCase());
+      if (idx >= 0) merged[idx] = { name: h.name, value: h.value };
+      else merged.push({ name: h.name, value: h.value });
+    });
+    chrome.debugger.sendCommand({ tabId }, 'Fetch.continueRequest', { requestId, headers: merged }).catch(() => {});
   }
 
   async function attachInspector(tabId) {
@@ -100743,6 +100770,14 @@ ${sourceUrlComment}
     } catch (e) {
       console.warn('[inspector] enable failed:', e.message);
     }
+    // Load persisted overrides and activate Fetch if needed
+    try {
+      const d = await chrome.storage.local.get('inspector-overrides');
+      store.overrides = d['inspector-overrides'] || [];
+      if ((store.overrides.length || store.injectedHeaders.length) && !store.interceptPort) {
+        await chrome.debugger.sendCommand({ tabId }, 'Fetch.enable', { patterns: [{ requestStage: 'Request' }] }).catch(() => {});
+      }
+    } catch {}
     return { ok: true };
   }
 
@@ -100760,6 +100795,19 @@ ${sourceUrlComment}
     const store = getStore(tabId);
 
     if (method === 'Network.requestWillBeSent') {
+      if (params.redirectResponse) {
+        // Redirect — record the hop and update URL on the existing entry
+        const e = store.requests.get(params.requestId);
+        if (e) {
+          if (!e.redirectChain) e.redirectChain = [];
+          e.redirectChain.push({ url: e.url, status: params.redirectResponse.status, statusText: params.redirectResponse.statusText });
+          e.url = params.request.url;
+          e.method = params.request.method;
+          e.requestHeaders = params.request.headers;
+          e.requestBody = params.request.postData || null;
+        }
+        return;
+      }
       if (store.requests.size >= MAX_REQ) {
         const oldest = store.requests.keys().next().value;
         store.requests.delete(oldest);
@@ -100782,6 +100830,7 @@ ${sourceUrlComment}
         size: null,
         error: null,
         done: false,
+        redirectChain: [],
       });
     }
 
@@ -100825,24 +100874,18 @@ ${sourceUrlComment}
 
     else if (method === 'Fetch.requestPaused') {
       const url = params.request?.url || '';
-      const mock = store?.mocks?.find(m => { try { return new RegExp(m.pattern,'i').test(url); } catch { return url.includes(m.pattern); } });
-      if (mock) {
-        const enc = new TextEncoder();
-        const bytes = enc.encode(mock.body || '');
-        let b64 = ''; const chunk = 8192;
-        for (let i = 0; i < bytes.length; i += chunk) b64 += String.fromCharCode(...bytes.subarray(i, i + chunk));
-        chrome.debugger.sendCommand({ tabId }, 'Fetch.fulfillRequest', {
-          requestId: params.requestId, responseCode: mock.status || 200,
-          responseHeaders: [{name:'Content-Type',value:mock.contentType||'application/json'},{name:'Access-Control-Allow-Origin',value:'*'}],
-          body: btoa(b64),
-        }).catch(() => {});
+      const matchRule = arr => arr?.find(m => { try { return new RegExp(m.pattern,'i').test(url); } catch { return url.includes(m.pattern); } });
+      const override = matchRule(store?.overrides);
+      const mock = !override && matchRule(store?.mocks);
+      if (override || mock) {
+        fulfillRule(tabId, params.requestId, override || mock);
       } else {
         const port = store?.interceptPort;
         if (port) {
           try { port.postMessage({ type: 'PAUSED', requestId: params.requestId, request: params.request, resourceType: params.resourceType }); }
-          catch { chrome.debugger.sendCommand({ tabId }, 'Fetch.continueRequest', { requestId: params.requestId }).catch(() => {}); }
+          catch { continueWithInjected(tabId, params.requestId, params, store?.injectedHeaders); }
         } else {
-          chrome.debugger.sendCommand({ tabId }, 'Fetch.continueRequest', { requestId: params.requestId }).catch(() => {});
+          continueWithInjected(tabId, params.requestId, params, store?.injectedHeaders);
         }
       }
     }
@@ -100990,6 +101033,55 @@ ${sourceUrlComment}
           } catch (e) {
             reply({ ok: false, error: e.message });
           }
+          break;
+        }
+        case 'INS_COOKIE_SET': {
+          try {
+            await chrome.debugger.sendCommand({ tabId }, 'Network.setCookie', msg.cookie);
+            reply({ ok: true });
+          } catch (e) { reply({ ok: false, error: e.message }); }
+          break;
+        }
+        case 'INS_COOKIE_DEL': {
+          try {
+            await chrome.debugger.sendCommand({ tabId }, 'Network.deleteCookies', { name: msg.name, domain: msg.domain });
+            reply({ ok: true });
+          } catch (e) { reply({ ok: false, error: e.message }); }
+          break;
+        }
+        case 'INS_INJECT_HEADERS_SET': {
+          const store = getStore(tabId);
+          store.injectedHeaders = msg.headers || [];
+          const needFetch = store.injectedHeaders.length > 0 || store.overrides.length > 0 || store.mocks.length > 0;
+          if (needFetch && !store.interceptPort) {
+            chrome.debugger.sendCommand({ tabId }, 'Fetch.enable', { patterns: [{ requestStage: 'Request' }] }).catch(() => {});
+          } else if (!needFetch && !store.interceptPort) {
+            chrome.debugger.sendCommand({ tabId }, 'Fetch.disable').catch(() => {});
+          }
+          reply({ ok: true });
+          break;
+        }
+        case 'INS_INJECT_HEADERS_GET': {
+          const store = captureStore.get(tabId);
+          reply({ headers: store?.injectedHeaders || [] });
+          break;
+        }
+        case 'INS_OVERRIDE_SET': {
+          const store = getStore(tabId);
+          store.overrides = msg.overrides || [];
+          await chrome.storage.local.set({ 'inspector-overrides': store.overrides });
+          const needFetch = store.overrides.length > 0 || store.injectedHeaders.length > 0 || store.mocks.length > 0;
+          if (needFetch && !store.interceptPort) {
+            chrome.debugger.sendCommand({ tabId }, 'Fetch.enable', { patterns: [{ requestStage: 'Request' }] }).catch(() => {});
+          } else if (!needFetch && !store.interceptPort) {
+            chrome.debugger.sendCommand({ tabId }, 'Fetch.disable').catch(() => {});
+          }
+          reply({ ok: true });
+          break;
+        }
+        case 'INS_OVERRIDE_GET': {
+          const d = await chrome.storage.local.get('inspector-overrides');
+          reply({ overrides: d['inspector-overrides'] || [] });
           break;
         }
         case 'INS_REPLAY': {
