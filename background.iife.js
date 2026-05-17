@@ -100794,8 +100794,8 @@ ${sourceUrlComment}
     } catch {}
     // Load persisted overrides and activate Fetch if needed
     try {
-      const d = await chrome.storage.local.get('inspector-overrides');
-      store.overrides = d['inspector-overrides'] || [];
+      const d = await chrome.storage.local.get('inspector-overrides-' + tabId);
+      store.overrides = d['inspector-overrides-' + tabId] || [];
       if ((store.overrides.length || store.injectedHeaders.length) && !store.interceptPort) {
         await chrome.debugger.sendCommand({ tabId }, 'Fetch.enable', { patterns: [{ requestStage: 'Request' }] }).catch(() => {});
       }
@@ -100809,6 +100809,11 @@ ${sourceUrlComment}
     // Only detach if we initiated the attach; if piggybacking on Nanobrowser, leave it running
     if (store.attachedBySelf) {
       try { await chrome.debugger.detach({ tabId }); } catch {}
+    } else {
+      // Piggybacking — disable Fetch so our paused-request handlers stop firing
+      if (store.mocks.length || store.injectedHeaders.length || store.overrides.length) {
+        chrome.debugger.sendCommand({ tabId }, 'Fetch.disable').catch(() => {});
+      }
     }
     store.attached = false;
     store.attachedBySelf = false;
@@ -101002,6 +101007,7 @@ ${sourceUrlComment}
         }
         case 'INS_SCREENSHOT': {
           try {
+            await chrome.debugger.sendCommand({ tabId }, 'Page.enable').catch(() => {});
             const r = await chrome.debugger.sendCommand({ tabId }, 'Page.captureScreenshot', { format: 'png' });
             reply({ ok: true, data: r.data });
           } catch (e) { reply({ ok: false, error: e.message }); }
@@ -101011,7 +101017,7 @@ ${sourceUrlComment}
           try {
             const results = await chrome.scripting.executeScript({
               target: { tabId }, world: 'MAIN',
-              func: code => { try { return { ok: true, result: String(eval(code)), type: typeof eval(code) }; } catch(e) { return { ok: false, error: e.message }; } },
+              func: code => { try { const v = eval(code); return { ok: true, result: String(v), type: typeof v }; } catch(e) { return { ok: false, error: e.message }; } },
               args: [msg.code],
             });
             reply(results?.[0]?.result || { ok: false, error: 'No result' });
@@ -101096,7 +101102,7 @@ ${sourceUrlComment}
         case 'INS_OVERRIDE_SET': {
           const store = getStore(tabId);
           store.overrides = msg.overrides || [];
-          await chrome.storage.local.set({ 'inspector-overrides': store.overrides });
+          await chrome.storage.local.set({ ['inspector-overrides-' + tabId]: store.overrides });
           const needFetch = store.overrides.length > 0 || store.injectedHeaders.length > 0 || store.mocks.length > 0;
           if (needFetch && !store.interceptPort) {
             chrome.debugger.sendCommand({ tabId }, 'Fetch.enable', { patterns: [{ requestStage: 'Request' }] }).catch(() => {});
@@ -101107,8 +101113,8 @@ ${sourceUrlComment}
           break;
         }
         case 'INS_OVERRIDE_GET': {
-          const d = await chrome.storage.local.get('inspector-overrides');
-          reply({ overrides: d['inspector-overrides'] || [] });
+          const d = await chrome.storage.local.get('inspector-overrides-' + tabId);
+          reply({ overrides: d['inspector-overrides-' + tabId] || [] });
           break;
         }
         case 'INS_REPLAY': {
