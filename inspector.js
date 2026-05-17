@@ -17,6 +17,12 @@ let settings = {
   apiKey: '',
   systemPrompt: 'You are an AI assistant integrated into a browser dev tool. You help developers understand network requests, console errors, API responses, and page behavior. Be concise, technical, and precise.',
 };
+let wsConnections = [];       // [{id,url,frames,closed,ts}]
+let storageItems = [];        // [{key,value,selected}]
+let storageType = 'local';    // 'local' | 'session' | 'cookies'
+let selectedWsFrames = [];    // [{connId, frameIdx}]
+let selectedStorItems = new Set(); // indices
+let expandedWsConn = null;
 let expandedRow = null;
 let expandedDetailTab = 'response-body';
 let pollTimer = null;
@@ -114,6 +120,29 @@ function setupUI() {
   document.getElementById('level-filter').addEventListener('change', e => { filterLevel = e.target.value; renderConsole(); });
   document.getElementById('ask-con-btn').addEventListener('click', () => sendSelectedToChat('console'));
 
+  // WebSocket filters
+  document.getElementById('ws-filter').addEventListener('input', renderWebSockets);
+  document.getElementById('ws-dir-filter').addEventListener('change', renderWebSockets);
+  document.getElementById('ask-ws-btn').addEventListener('click', () => sendSelectedToChat('websockets'));
+
+  // Storage
+  document.getElementById('stor-type-filter').addEventListener('change', e => {
+    storageType = e.target.value;
+    storageItems = [];
+    selectedStorItems.clear();
+    renderStorage();
+  });
+  document.getElementById('stor-filter').addEventListener('input', renderStorage);
+  document.getElementById('stor-refresh-btn').addEventListener('click', refreshStorage);
+  document.getElementById('stor-select-all').addEventListener('change', e => {
+    const visible = visibleStorageItems();
+    if (e.target.checked) visible.forEach((_, i) => selectedStorItems.add(i));
+    else selectedStorItems.clear();
+    renderStorage();
+    updateStorSelCount();
+  });
+  document.getElementById('ask-stor-btn').addEventListener('click', () => sendSelectedToChat('storage'));
+
   // Chat
   document.getElementById('chat-send').addEventListener('click', sendChat);
   document.getElementById('chat-stop').addEventListener('click', stopChat);
@@ -161,14 +190,17 @@ function updateCaptureUI() {
 
 async function pollData() {
   if (!targetTabId) return;
-  const [netR, conR] = await Promise.all([
+  const [netR, conR, wsR] = await Promise.all([
     chrome.runtime.sendMessage({ type: 'INS_NETWORK', tabId: targetTabId }),
     chrome.runtime.sendMessage({ type: 'INS_CONSOLE', tabId: targetTabId }),
+    chrome.runtime.sendMessage({ type: 'INS_WS', tabId: targetTabId }),
   ]);
   netRequests = netR.requests || [];
   consoleLogs = conR.logs || [];
+  wsConnections = wsR.connections || [];
   renderNetwork();
   renderConsole();
+  renderWebSockets();
   updateBadges();
 }
 
@@ -178,11 +210,18 @@ async function clearAll() {
   }
   netRequests = [];
   consoleLogs = [];
+  wsConnections = [];
+  storageItems = [];
   selectedRequests.clear();
   selectedLogs.clear();
+  selectedWsFrames = [];
+  selectedStorItems.clear();
   expandedRow = null;
+  expandedWsConn = null;
   renderNetwork();
   renderConsole();
+  renderWebSockets();
+  renderStorage();
   updateBadges();
   updateSelCount();
 }
@@ -368,13 +407,149 @@ function updateConSelCount() {
   document.getElementById('ask-con-btn').disabled = c === 0;
 }
 
+// ── WebSockets render ─────────────────────────────────────
+function renderWebSockets() {
+  const list = document.getElementById('ws-list');
+  const empty = document.getElementById('ws-empty');
+  const filterUrl = document.getElementById('ws-filter').value.toLowerCase();
+  const filterDir = document.getElementById('ws-dir-filter').value;
+
+  const conns = wsConnections.filter(c => !filterUrl || c.url.toLowerCase().includes(filterUrl));
+
+  if (wsConnections.length === 0) { list.innerHTML = ''; empty.style.display = ''; return; }
+  empty.style.display = 'none';
+
+  list.innerHTML = conns.map(conn => {
+    const isOpen = expandedWsConn === conn.id;
+    const frames = conn.frames.filter(f => !filterDir || f.dir === filterDir);
+    const framesHtml = frames.map((f, fi) => {
+      const selected = selectedWsFrames.some(s => s.connId === conn.id && s.frameIdx === fi);
+      const preview = tryPrettyWs(f.data);
+      return `<div class="ws-frame">
+        <input type="checkbox" data-cid="${esc(conn.id)}" data-fi="${fi}" ${selected ? 'checked' : ''}>
+        <span class="ws-dir ${f.dir}">${f.dir === 'sent' ? '↑' : '↓'}</span>
+        <div class="ws-data">${esc(preview)}</div>
+        <span class="ws-ts">${fmtTime(f.ts)}</span>
+      </div>`;
+    }).join('');
+    return `<div class="ws-conn ${isOpen ? 'open' : ''}" data-id="${esc(conn.id)}">
+      <div class="ws-conn-hdr">
+        <div class="ws-dot ${conn.closed ? 'closed' : ''}"></div>
+        <span class="ws-conn-url" title="${esc(conn.url)}">${esc(conn.url)}</span>
+        <span class="ws-conn-meta">${conn.frames.length} frames ${conn.closed ? '· closed' : '· open'}</span>
+      </div>
+      <div class="ws-frames">${framesHtml || '<div style="color:var(--muted);font-size:11px;padding:4px">No frames match filter</div>'}</div>
+    </div>`;
+  }).join('');
+
+  list.querySelectorAll('.ws-conn-hdr').forEach(hdr => {
+    hdr.addEventListener('click', () => {
+      const id = hdr.closest('.ws-conn').dataset.id;
+      expandedWsConn = expandedWsConn === id ? null : id;
+      renderWebSockets();
+    });
+  });
+  list.querySelectorAll('input[data-cid]').forEach(cb => {
+    cb.addEventListener('change', e => {
+      e.stopPropagation();
+      const cid = cb.dataset.cid, fi = parseInt(cb.dataset.fi);
+      if (cb.checked) selectedWsFrames.push({ connId: cid, frameIdx: fi });
+      else selectedWsFrames = selectedWsFrames.filter(s => !(s.connId === cid && s.frameIdx === fi));
+      updateWsSelCount();
+    });
+  });
+  updateWsSelCount();
+}
+
+function tryPrettyWs(data) {
+  try { return JSON.stringify(JSON.parse(data), null, 2); } catch { return data; }
+}
+
+function fmtTime(ts) {
+  const d = new Date(ts);
+  return d.toTimeString().slice(0, 8) + '.' + String(d.getMilliseconds()).padStart(3, '0');
+}
+
+function updateWsSelCount() {
+  const c = selectedWsFrames.length;
+  document.getElementById('ws-sel-count').textContent = c > 0 ? `${c} selected` : '';
+  document.getElementById('ask-ws-btn').disabled = c === 0;
+}
+
+// ── Storage ───────────────────────────────────────────────
+async function refreshStorage() {
+  if (!targetTabId) return;
+  const btn = document.getElementById('stor-refresh-btn');
+  btn.textContent = '⏳';
+  btn.disabled = true;
+  try {
+    if (storageType === 'cookies') {
+      const r = await chrome.runtime.sendMessage({ type: 'INS_COOKIES', tabId: targetTabId });
+      if (!r.ok) { storageItems = [{ key: 'Error', value: r.error }]; }
+      else storageItems = r.cookies.map(c => ({ key: c.name, value: JSON.stringify({ value: c.value, domain: c.domain, path: c.path, httpOnly: c.httpOnly, secure: c.secure }) }));
+    } else {
+      const r = await chrome.runtime.sendMessage({ type: 'INS_STORAGE', tabId: targetTabId });
+      if (!r.ok) { storageItems = [{ key: 'Error', value: r.error }]; }
+      else storageItems = (storageType === 'local' ? r.storage.local : r.storage.session).map(([k, v]) => ({ key: k, value: v }));
+    }
+    selectedStorItems.clear();
+    renderStorage();
+  } finally {
+    btn.textContent = '↻ Refresh';
+    btn.disabled = false;
+  }
+}
+
+function visibleStorageItems() {
+  const f = document.getElementById('stor-filter').value.toLowerCase();
+  return storageItems.filter(item => !f || item.key.toLowerCase().includes(f) || item.value.toLowerCase().includes(f));
+}
+
+function renderStorage() {
+  const tbody = document.getElementById('stor-tbody');
+  const empty = document.getElementById('stor-empty');
+  const visible = visibleStorageItems();
+
+  if (storageItems.length === 0) { tbody.innerHTML = ''; empty.style.display = ''; return; }
+  empty.style.display = 'none';
+
+  tbody.innerHTML = visible.map((item, i) => {
+    const selected = selectedStorItems.has(i);
+    return `<tr class="${selected ? 'selected' : ''}" data-idx="${i}">
+      <td style="text-align:center"><input type="checkbox" data-idx="${i}" ${selected ? 'checked' : ''}></td>
+      <td title="${esc(item.key)}">${esc(item.key)}</td>
+      <td title="${esc(item.value)}">${esc(item.value.slice(0, 200))}</td>
+    </tr>`;
+  }).join('');
+
+  tbody.querySelectorAll('input[data-idx]').forEach(cb => {
+    cb.addEventListener('change', e => {
+      e.stopPropagation();
+      const idx = parseInt(cb.dataset.idx);
+      if (cb.checked) selectedStorItems.add(idx); else selectedStorItems.delete(idx);
+      cb.closest('tr').classList.toggle('selected', cb.checked);
+      updateStorSelCount();
+    });
+  });
+  updateStorSelCount();
+}
+
+function updateStorSelCount() {
+  const c = selectedStorItems.size;
+  document.getElementById('stor-sel-count').textContent = c > 0 ? `${c} selected` : '';
+  document.getElementById('ask-stor-btn').disabled = c === 0;
+}
+
 // ── Badges ────────────────────────────────────────────────
 function updateBadges() {
   const nb = document.getElementById('net-badge');
   const cb = document.getElementById('con-badge');
+  const wb = document.getElementById('ws-badge');
   if (netRequests.length > 0) { nb.textContent = netRequests.length; nb.style.display = ''; } else nb.style.display = 'none';
   const errCount = consoleLogs.filter(l => l.level === 'error').length;
   if (errCount > 0) { cb.textContent = errCount; cb.style.display = ''; } else if (consoleLogs.length > 0) { cb.textContent = consoleLogs.length; cb.style.display = ''; } else cb.style.display = 'none';
+  const wsFrameCount = wsConnections.reduce((s, c) => s + c.frames.length, 0);
+  if (wsFrameCount > 0) { wb.textContent = wsFrameCount; wb.style.display = ''; } else wb.style.display = 'none';
 }
 
 // ── Tab switch ────────────────────────────────────────────
@@ -391,10 +566,22 @@ function sendSelectedToChat(source) {
       const r = netRequests.find(x => x.id === id);
       if (r) chatContext.push({ type: 'request', data: r });
     }
-  } else {
+  } else if (source === 'console') {
     for (const idx of selectedLogs) {
       const l = consoleLogs[idx];
       if (l) chatContext.push({ type: 'log', data: l });
+    }
+  } else if (source === 'websockets') {
+    for (const { connId, frameIdx } of selectedWsFrames) {
+      const conn = wsConnections.find(c => c.id === connId);
+      const frame = conn?.frames[frameIdx];
+      if (frame) chatContext.push({ type: 'wsframe', data: { url: conn.url, ...frame } });
+    }
+  } else if (source === 'storage') {
+    const visible = visibleStorageItems();
+    for (const idx of selectedStorItems) {
+      const item = visible[idx];
+      if (item) chatContext.push({ type: 'storage', data: { storageType, ...item } });
     }
   }
   renderChatContextBar();
@@ -408,8 +595,9 @@ function renderChatContextBar() {
   bar.innerHTML = chatContext.map((c, i) => {
     const label = c.type === 'request'
       ? `${c.data.method} ${shortUrl(c.data.url)} (${c.data.status || 'pending'})`
-      : c.type === 'dom'
-      ? `DOM snapshot (${fmtSize(c.data.size)})`
+      : c.type === 'dom' ? `DOM snapshot (${fmtSize(c.data.size)})`
+      : c.type === 'wsframe' ? `WS ${c.data.dir === 'sent' ? '↑' : '↓'} ${c.data.data.slice(0, 30)}`
+      : c.type === 'storage' ? `${c.data.storageType}: ${c.data.key}`
       : `[${c.data.level}] ${c.data.text.slice(0, 40)}`;
     return `<div class="ctx-chip">📎 ${esc(label)} <span class="rm" data-i="${i}">✕</span></div>`;
   }).join('');
@@ -437,6 +625,12 @@ function buildContextBlock() {
       ].filter(Boolean).join('\n');
     } else if (c.type === 'dom') {
       return `=== Page DOM Snapshot (${fmtSize(c.data.size)}) ===\n${c.data.html.slice(0, 60000)}`;
+    } else if (c.type === 'wsframe') {
+      const f = c.data;
+      return `=== WebSocket Frame [${f.dir.toUpperCase()}] ===\nURL: ${f.url}\n${tryPrettyWs(f.data)}`;
+    } else if (c.type === 'storage') {
+      const d = c.data;
+      return `=== ${d.storageType} Storage ===\n${d.key}: ${d.value}`;
     } else {
       const l = c.data;
       return `=== Console [${l.level.toUpperCase()}] ===\n${l.text}${l.url ? `\nat ${l.url}${l.line ? ':' + l.line : ''}` : ''}`;
