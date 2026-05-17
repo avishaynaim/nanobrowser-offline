@@ -288,6 +288,46 @@ td.url-c{font-family:'Cascadia Code','Consolas',monospace;font-size:10px}
 /* FIX */
 .sec-fix-btn{padding:2px 8px;border:1px solid rgba(78,201,176,.4);border-radius:3px;background:none;color:var(--green);font-size:10px;cursor:pointer;font-family:inherit;margin-left:auto;flex-shrink:0}
 .sec-fix-btn:hover{background:rgba(78,201,176,.1)}
+
+/* SPARKLINE */
+#sparkline{display:flex;align-items:flex-end;gap:1px;height:18px;width:72px;flex-shrink:0}
+.spark-bar{flex:1;background:var(--accent);opacity:.6;border-radius:1px 1px 0 0;min-height:1px;transition:height .2s}
+.spark-bar.hot{background:var(--err);opacity:.8}
+#spark-label{font-size:9px;color:var(--muted);white-space:nowrap;align-self:center}
+
+/* TIMELINE */
+#tl-wrap{flex:1;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:2px}
+#tl-wrap::-webkit-scrollbar{width:6px;height:6px}
+#tl-wrap::-webkit-scrollbar-thumb{background:var(--scrollbar);border-radius:3px}
+.tl-axis{display:flex;padding:0 0 4px 140px;position:relative;height:20px;flex-shrink:0}
+.tl-tick{position:absolute;font-size:9px;color:var(--muted);transform:translateX(-50%)}
+.tl-row{display:flex;align-items:center;gap:6px;min-height:18px}
+.tl-lbl{width:134px;flex-shrink:0;font-size:10px;font-family:monospace;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right;cursor:pointer}
+.tl-lbl:hover{color:var(--accent)}
+.tl-track{flex:1;height:10px;position:relative;background:var(--surface2);border-radius:2px;overflow:visible}
+.tl-bar{position:absolute;height:100%;border-radius:2px;cursor:pointer;min-width:3px}
+.tl-bar:hover{filter:brightness(1.3);z-index:1}
+.tl-type-xhr{background:#569cd6}.tl-type-fetch{background:#4ec9b0}.tl-type-document{background:#ce9178}
+.tl-type-script{background:#dcdcaa}.tl-type-stylesheet{background:#c586c0}.tl-type-image{background:#9cdcfe}
+.tl-type-other{background:#858585}.tl-type-err{background:#f44747}
+.tl-empty{flex:1;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px}
+.tl-legend{display:flex;gap:10px;padding:6px 0 0 140px;flex-wrap:wrap;flex-shrink:0}
+.tl-leg-item{display:flex;align-items:center;gap:4px;font-size:10px;color:var(--muted)}
+.tl-leg-dot{width:8px;height:8px;border-radius:2px;flex-shrink:0}
+
+/* REDIRECT CHAIN */
+.redir-chain{display:flex;flex-direction:column;gap:4px}
+.redir-hop{display:flex;align-items:center;gap:8px;font-size:11px}
+.redir-hop-num{width:20px;height:20px;border-radius:50%;background:var(--surface3);color:var(--muted);font-size:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.redir-hop-url{font-family:monospace;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
+.redir-hop-status{color:var(--orange);font-weight:600;flex-shrink:0}
+.redir-final{color:var(--green);font-weight:500}
+
+/* HEADER INJECTION */
+.hdr-row{display:flex;gap:6px;align-items:center}
+.hdr-row input{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:3px;color:var(--text);padding:4px 6px;font-size:11px;outline:none;font-family:monospace}
+.hdr-row input:focus{border-color:var(--accent)}
+.hdr-rm{border:none;background:none;color:var(--muted);cursor:pointer;font-size:14px;padding:0 4px;font-family:inherit}.hdr-rm:hover{color:var(--err)}
 </style>
 </head>
 <body>
@@ -324,6 +364,8 @@ td.url-c{font-family:'Cascadia Code','Consolas',monospace;font-size:10px}
         <div class="tb-drop-sep"></div>
         <div class="tb-drop-item" id="tool-block">🚫 URL Blocking</div>
         <div class="tb-drop-item" id="tool-mocks">🎭 Mock Responses</div>
+        <div class="tb-drop-item" id="tool-overrides">📁 Local Overrides</div>
+        <div class="tb-drop-item" id="tool-inject">💉 Inject Headers</div>
         <div class="tb-drop-sep"></div>
         <div class="tb-drop-item" id="tool-save">💾 Save Session</div>
         <div class="tb-drop-item" id="tool-sessions">📂 Load Session</div>
@@ -331,6 +373,10 @@ td.url-c{font-family:'Cascadia Code','Consolas',monospace;font-size:10px}
         <div class="tb-drop-item" id="tool-clear">🗑 Clear All</div>
       </div>
     </div>
+    <div class="tb-sep"></div>
+    <div id="sparkline"></div>
+    <span id="spark-label"></span>
+    <div class="tb-sep"></div>
     <button class="tb-btn" id="settings-btn">⚙</button>
   </div>
 
@@ -341,6 +387,7 @@ td.url-c{font-family:'Cascadia Code','Consolas',monospace;font-size:10px}
     <div class="tab" data-tab="websockets">WebSockets <span class="badge" id="ws-badge" style="display:none">0</span></div>
     <div class="tab" data-tab="storage">Storage</div>
     <div class="tab" data-tab="repl">JS REPL</div>
+    <div class="tab" data-tab="timeline">Timeline</div>
     <div class="tab" data-tab="performance">Performance</div>
     <div class="tab" data-tab="security">Security <span class="badge err" id="sec-badge" style="display:none">0</span></div>
     <div class="tab" data-tab="chat">AI Chat</div>
@@ -447,6 +494,17 @@ td.url-c{font-family:'Cascadia Code','Consolas',monospace;font-size:10px}
         <input id="repl-input" placeholder="JS expression — runs in page context (Enter)">
         <button class="repl-run" id="repl-run-btn">Run</button>
         <button class="repl-ask" id="repl-ask-btn" disabled>Ask AI</button>
+      </div>
+    </div>
+
+    <!-- TIMELINE -->
+    <div class="panel" id="panel-timeline">
+      <div class="filter-bar">
+        <span style="font-size:11px;color:var(--muted)">Gantt waterfall — click a row to jump to Network tab</span>
+        <button class="ask-btn" id="tl-refresh-btn">↻ Refresh</button>
+      </div>
+      <div id="tl-wrap">
+        <div class="tl-empty" id="tl-empty">Start capture and load a page to see the timeline</div>
       </div>
     </div>
 
@@ -593,6 +651,71 @@ td.url-c{font-family:'Cascadia Code','Consolas',monospace;font-size:10px}
       </div>
       <div class="s-actions"><button class="s-btn sec" id="rp-attach">Attach to AI Chat</button></div>
     </div>
+  </div>
+</div>
+
+<!-- COOKIE EDITOR -->
+<div class="modal" id="cookie-modal">
+  <div class="modal-box" style="width:540px">
+    <h3 id="cookie-modal-title">🍪 Edit Cookie</h3>
+    <div class="s-row">
+      <div class="s-field"><label>Name</label><input type="text" id="ck-name"></div>
+      <div class="s-field"><label>Value</label><input type="text" id="ck-value" style="font-family:monospace"></div>
+    </div>
+    <div class="s-row">
+      <div class="s-field"><label>Domain</label><input type="text" id="ck-domain"></div>
+      <div class="s-field"><label>Path</label><input type="text" id="ck-path" value="/"></div>
+    </div>
+    <div class="s-row">
+      <div class="s-field"><label>Expires (unix sec, blank=session)</label><input type="number" id="ck-expires" placeholder="leave blank for session"></div>
+      <div class="s-field" style="flex-direction:row;align-items:center;gap:12px;padding-top:18px">
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="ck-secure"> Secure</label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="ck-httponly"> HttpOnly</label>
+      </div>
+    </div>
+    <div class="s-actions">
+      <button class="s-btn danger" id="ck-delete" style="display:none">Delete</button>
+      <button class="s-btn sec" id="ck-cancel">Cancel</button>
+      <button class="s-btn primary" id="ck-save">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- HEADER INJECTION -->
+<div class="modal" id="inject-modal">
+  <div class="modal-box" style="width:540px">
+    <h3>💉 Inject Headers</h3>
+    <p class="s-hint">These headers are added to every request on the page while capture is active.</p>
+    <div id="hdr-list" style="display:flex;flex-direction:column;gap:6px;margin:6px 0"></div>
+    <button class="s-btn sec" id="hdr-add-btn" style="align-self:flex-start">+ Add Header</button>
+    <div class="s-actions">
+      <button class="s-btn sec" id="hdr-cancel">Cancel</button>
+      <button class="s-btn danger" id="hdr-clear-btn">Clear All</button>
+      <button class="s-btn primary" id="hdr-apply-btn">Apply</button>
+    </div>
+  </div>
+</div>
+
+<!-- LOCAL OVERRIDES -->
+<div class="modal" id="overrides-modal">
+  <div class="modal-box" style="width:580px">
+    <h3>📁 Local Overrides</h3>
+    <p class="s-hint">Persistent mock responses — survive session reloads. Active whenever inspector is attached.</p>
+    <div class="s-field">
+      <label>URL Pattern (regex or substring)</label>
+      <input type="text" id="ov-pattern" placeholder="/api/config or .*\.json$">
+    </div>
+    <div class="s-row">
+      <div class="s-field"><label>Status</label><input type="number" id="ov-status" value="200" style="width:80px"></div>
+      <div class="s-field"><label>Content-Type</label><input type="text" id="ov-ctype" value="application/json"></div>
+    </div>
+    <div class="s-field"><label>Response Body</label><textarea id="ov-body" rows="5" style="resize:vertical;font-family:monospace;font-size:11px" placeholder='{"overridden": true}'></textarea></div>
+    <div class="s-actions" style="justify-content:space-between">
+      <button class="s-btn primary" id="ov-add-btn">+ Add Override</button>
+      <button class="s-btn sec" id="ov-cancel">Close</button>
+    </div>
+    <div id="ov-list" style="display:flex;flex-direction:column;gap:6px;max-height:180px;overflow-y:auto"></div>
+    <div class="s-actions"><button class="s-btn primary" id="ov-apply-btn">Save &amp; Apply</button></div>
   </div>
 </div>
 
