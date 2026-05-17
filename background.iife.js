@@ -100751,15 +100751,18 @@ ${sourceUrlComment}
   async function attachInspector(tabId) {
     const store = getStore(tabId);
     if (store.attached) return { ok: true };
+    let attachedBySelf = false;
     try {
       await chrome.debugger.attach({ tabId }, '1.3');
+      attachedBySelf = true;
     } catch (e) {
       if (!e.message?.includes('already attached')) {
         return { ok: false, error: e.message };
       }
-      // Already attached by Nanobrowser automation — that's fine, share it
+      // Already attached by Nanobrowser — share the session, do NOT detach on stop
     }
     store.attached = true;
+    store.attachedBySelf = attachedBySelf;
     try {
       await chrome.debugger.sendCommand({ tabId }, 'Network.enable', {
         maxTotalBufferSize: 20 * 1024 * 1024,
@@ -100803,8 +100806,12 @@ ${sourceUrlComment}
   async function detachInspector(tabId) {
     const store = captureStore.get(tabId);
     if (!store?.attached) return;
-    try { await chrome.debugger.detach({ tabId }); } catch {}
+    // Only detach if we initiated the attach; if piggybacking on Nanobrowser, leave it running
+    if (store.attachedBySelf) {
+      try { await chrome.debugger.detach({ tabId }); } catch {}
+    }
     store.attached = false;
+    store.attachedBySelf = false;
   }
 
   // CDP events
@@ -101031,7 +101038,8 @@ ${sourceUrlComment}
           const hasMocks = store.mocks.length > 0;
           if (hasMocks && !store.interceptPort) {
             chrome.debugger.sendCommand({ tabId }, 'Fetch.enable', { patterns: [{ requestStage: 'Request' }] }).catch(() => {});
-          } else if (!hasMocks && !store.interceptPort) {
+          } else if (!hasMocks && !store.interceptPort && !store.injectedHeaders.length && !store.overrides.length) {
+            // Only disable Fetch if nothing else needs it
             chrome.debugger.sendCommand({ tabId }, 'Fetch.disable').catch(() => {});
           }
           reply({ ok: true });
