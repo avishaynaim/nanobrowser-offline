@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  body {
+    width: 280px;
+    padding: 16px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 13px;
+    background: #1a1a2e;
+    color: #e0e0e0;
+    margin: 0;
+  }
+  h3 { margin: 0 0 10px; color: #7c6aff; font-size: 14px; }
+  p { margin: 0 0 12px; color: #aaa; line-height: 1.5; }
+  .btn {
+    display: block;
+    width: 100%;
+    padding: 9px 0;
+    background: #7c6aff;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    text-align: center;
+    text-decoration: none;
+    margin-bottom: 8px;
+  }
+  .btn:hover { background: #9580ff; }
+  .btn-outline {
+    background: transparent;
+    border: 1px solid #444;
+    color: #aaa;
+  }
+  .btn-outline:hover { border-color: #7c6aff; color: #e0e0e0; }
+  .note {
+    font-size: 11px;
+    color: #666;
+    border-top: 1px solid #333;
+    padding-top: 10px;
+    margin-top: 4px;
+  }
+</style>
+</head>
+<body>
+  <h3>◈ Nanobrowser (Local AI)</h3>
+  <p>AI web automation powered by your local model.</p>
+
+  <button class="btn" id="open-panel">Open Side Panel</button>
+  <a class="btn btn-outline" id="open-options">Settings / Add Model</a>
+
+  <div class="note">
+    Side panel requires Chrome/Edge 114+.<br>
+    Use Settings to configure your local OpenAI-compatible endpoint.
+  </div>
+
+  <script>
+    document.getElementById('open-panel').addEventListener('click', () => {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (chrome.sidePanel?.open) {
+          chrome.sidePanel.open({ tabId: tabs[0].id }).catch(() => {
+            // Fallback: open options if sidePanel not supported
+            chrome.runtime.openOptionsPage();
+          });
+        } else {
+          chrome.runtime.openOptionsPage();
+        }
+        window.close();
+      });
+    });
+
+    document.getElementById('open-options').addEventListener('click', (e) => {
+      e.preventDefault();
+      chrome.runtime.openOptionsPage();
+      window.close();
+    });
+  </script>
+</body>
+</html>
