@@ -100716,7 +100716,7 @@ ${sourceUrlComment}
 
   function getStore(tabId) {
     if (!captureStore.has(tabId)) {
-      captureStore.set(tabId, { requests: new Map(), console: [], attached: false, ws: new Map(), blockedUrls: [], interceptPort: null });
+      captureStore.set(tabId, { requests: new Map(), console: [], attached: false, ws: new Map(), blockedUrls: [], interceptPort: null, mocks: [] });
     }
     return captureStore.get(tabId);
   }
@@ -100824,12 +100824,26 @@ ${sourceUrlComment}
     }
 
     else if (method === 'Fetch.requestPaused') {
-      const port = store?.interceptPort;
-      if (port) {
-        try { port.postMessage({ type: 'PAUSED', requestId: params.requestId, request: params.request, resourceType: params.resourceType }); }
-        catch { chrome.debugger.sendCommand({ tabId }, 'Fetch.continueRequest', { requestId: params.requestId }).catch(() => {}); }
+      const url = params.request?.url || '';
+      const mock = store?.mocks?.find(m => { try { return new RegExp(m.pattern,'i').test(url); } catch { return url.includes(m.pattern); } });
+      if (mock) {
+        const enc = new TextEncoder();
+        const bytes = enc.encode(mock.body || '');
+        let b64 = ''; const chunk = 8192;
+        for (let i = 0; i < bytes.length; i += chunk) b64 += String.fromCharCode(...bytes.subarray(i, i + chunk));
+        chrome.debugger.sendCommand({ tabId }, 'Fetch.fulfillRequest', {
+          requestId: params.requestId, responseCode: mock.status || 200,
+          responseHeaders: [{name:'Content-Type',value:mock.contentType||'application/json'},{name:'Access-Control-Allow-Origin',value:'*'}],
+          body: btoa(b64),
+        }).catch(() => {});
       } else {
-        chrome.debugger.sendCommand({ tabId }, 'Fetch.continueRequest', { requestId: params.requestId }).catch(() => {});
+        const port = store?.interceptPort;
+        if (port) {
+          try { port.postMessage({ type: 'PAUSED', requestId: params.requestId, request: params.request, resourceType: params.resourceType }); }
+          catch { chrome.debugger.sendCommand({ tabId }, 'Fetch.continueRequest', { requestId: params.requestId }).catch(() => {}); }
+        } else {
+          chrome.debugger.sendCommand({ tabId }, 'Fetch.continueRequest', { requestId: params.requestId }).catch(() => {});
+        }
       }
     }
 
@@ -100949,6 +100963,23 @@ ${sourceUrlComment}
           reply({ patterns: store?.blockedUrls || [] });
           break;
         }
+        case 'INS_MOCK_SET': {
+          const store = getStore(tabId);
+          store.mocks = msg.mocks || [];
+          const hasMocks = store.mocks.length > 0;
+          if (hasMocks && !store.interceptPort) {
+            chrome.debugger.sendCommand({ tabId }, 'Fetch.enable', { patterns: [{ requestStage: 'Request' }] }).catch(() => {});
+          } else if (!hasMocks && !store.interceptPort) {
+            chrome.debugger.sendCommand({ tabId }, 'Fetch.disable').catch(() => {});
+          }
+          reply({ ok: true });
+          break;
+        }
+        case 'INS_MOCK_GET': {
+          const store = captureStore.get(tabId);
+          reply({ mocks: store?.mocks || [] });
+          break;
+        }
         case 'INS_DOM': {
           try {
             const results = await chrome.scripting.executeScript({
@@ -100959,6 +100990,33 @@ ${sourceUrlComment}
           } catch (e) {
             reply({ ok: false, error: e.message });
           }
+          break;
+        }
+        case 'INS_REPLAY': {
+          try {
+            const opts = { method: msg.method || 'GET', headers: msg.headers || {} };
+            if (msg.body) opts.body = msg.body;
+            const resp = await fetch(msg.url, opts);
+            const body = await resp.text();
+            const hdrs = {};
+            resp.headers.forEach((v, k) => { hdrs[k] = v; });
+            reply({ ok: true, status: resp.status, statusText: resp.statusText, headers: hdrs, body });
+          } catch (e) { reply({ ok: false, error: e.message }); }
+          break;
+        }
+        case 'INS_THROTTLE': {
+          const store = captureStore.get(tabId);
+          if (!store?.attached) { reply({ ok: false, error: 'Not attached' }); break; }
+          const presets = {
+            none:   { offline: false, latency: 0,   downloadThroughput: -1,     uploadThroughput: -1 },
+            slow3g: { offline: false, latency: 400,  downloadThroughput: 51200,  uploadThroughput: 19200 },
+            fast3g: { offline: false, latency: 20,   downloadThroughput: 192000, uploadThroughput: 96000 },
+            '4g':   { offline: false, latency: 20,   downloadThroughput: 512000, uploadThroughput: 384000 },
+          };
+          try {
+            await chrome.debugger.sendCommand({ tabId }, 'Network.emulateNetworkConditions', presets[msg.preset] || presets.none);
+            reply({ ok: true });
+          } catch (e) { reply({ ok: false, error: e.message }); }
           break;
         }
       }
