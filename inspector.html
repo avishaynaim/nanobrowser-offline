@@ -328,6 +328,71 @@ td.url-c{font-family:'Cascadia Code','Consolas',monospace;font-size:10px}
 .hdr-row input{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:3px;color:var(--text);padding:4px 6px;font-size:11px;outline:none;font-family:monospace}
 .hdr-row input:focus{border-color:var(--accent)}
 .hdr-rm{border:none;background:none;color:var(--muted);cursor:pointer;font-size:14px;padding:0 4px;font-family:inherit}.hdr-rm:hover{color:var(--err)}
+
+/* JSON TREE */
+.jt-toggle{cursor:pointer;color:var(--accent);font-size:11px;font-family:monospace}
+.jt-toggle:hover{text-decoration:underline}
+.jt-body{padding-left:14px;border-left:1px solid var(--border);margin-left:3px}
+.jt-body.collapsed{display:none}
+.jt-row{padding:1px 0;font-size:11px;font-family:monospace;white-space:nowrap}
+.jt-key{color:var(--accent)}.jt-val{color:var(--yellow)}.jt-val.string{color:var(--orange)}.jt-val.number{color:var(--green)}.jt-val.boolean{color:var(--accent)}.jt-val.null{color:var(--muted)}
+.det-search{display:flex;gap:4px;margin-bottom:6px;align-items:center}
+.det-search input{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:3px;color:var(--text);padding:3px 8px;font-size:11px;outline:none;font-family:inherit}
+.det-search input:focus{border-color:var(--accent)}
+.det-search-cnt{font-size:10px;color:var(--muted);white-space:nowrap}
+mark.hl{background:rgba(220,220,170,.35);color:inherit;border-radius:2px}
+
+/* TAGS */
+.tag-dot{width:9px;height:9px;border-radius:50%;display:inline-block;cursor:pointer;border:1px solid rgba(255,255,255,.2);flex-shrink:0}
+.tag-picker{display:flex;gap:5px;flex-wrap:wrap;padding:4px}
+.tag-row{display:flex;align-items:center;gap:4px}
+
+/* ANNOTATIONS */
+.ann-icon{color:var(--yellow);font-size:11px;cursor:pointer;flex-shrink:0}
+.ann-icon:hover{opacity:.7}
+
+/* COMPARE */
+.cmp-panes{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.cmp-pane h4{font-size:11px;color:var(--muted);margin-bottom:4px}
+.cmp-body{font-family:monospace;font-size:11px;white-space:pre;overflow:auto;max-height:340px;padding:6px;background:var(--bg);border:1px solid var(--border);border-radius:3px;line-height:1.5}
+.cmp-body::-webkit-scrollbar{width:5px;height:5px}.cmp-body::-webkit-scrollbar-thumb{background:var(--scrollbar);border-radius:3px}
+.cmp-add{background:rgba(78,201,176,.15)}.cmp-del{background:rgba(244,71,71,.15)}.cmp-chg{background:rgba(255,140,0,.12)}
+
+/* BUDGET */
+.budget-bar{height:6px;background:var(--surface3);border-radius:3px;overflow:hidden;margin-top:3px}
+.budget-fill{height:100%;border-radius:3px;transition:width .3s}
+.budget-ok{background:var(--green)}.budget-warn{background:var(--warn)}.budget-err{background:var(--err)}
+.budget-row{display:flex;justify-content:space-between;font-size:11px;margin-top:6px}
+
+/* TOAST */
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:8px 16px;font-size:12px;z-index:999;box-shadow:0 4px 16px rgba(0,0,0,.4);pointer-events:none;transition:opacity .3s}
+.toast.alert{border-color:var(--err);color:var(--err)}
+
+/* SHORTCUTS */
+.kbd-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px 16px}
+.kbd-row{display:flex;align-items:center;gap:6px;font-size:11px;padding:3px 0;border-bottom:1px solid rgba(62,62,66,.3)}
+kbd{background:var(--surface3);border:1px solid var(--border);border-radius:3px;padding:1px 5px;font-size:10px;font-family:monospace}
+
+/* HISTORY CHART */
+.hist-bar-wrap{display:flex;align-items:flex-end;gap:2px;height:120px;padding:4px 0}
+.hist-bar{flex:1;background:var(--accent);border-radius:2px 2px 0 0;min-height:2px;cursor:pointer;transition:opacity .2s}
+.hist-bar:hover{opacity:.7}
+.hist-axis{display:flex;justify-content:space-between;font-size:9px;color:var(--muted);margin-top:2px}
+
+/* STREAMING */
+.stream-badge{display:inline-block;background:rgba(78,201,176,.15);border:1px solid rgba(78,201,176,.3);color:var(--green);border-radius:3px;padding:0 5px;font-size:9px;font-weight:600;margin-left:4px;vertical-align:middle}
+
+/* CACHE */
+.cache-ok{color:var(--green)}.cache-warn{color:var(--warn)}.cache-miss{color:var(--err)}
+
+/* DEDUP */
+.dup-badge{background:var(--warn);color:#000;border-radius:8px;padding:0 4px;font-size:9px;margin-left:3px;vertical-align:middle;cursor:pointer}
+
+/* PAUSE */
+.pause-on{border-color:var(--err)!important;color:var(--err)!important;background:rgba(244,71,71,.1)!important}
+
+/* THEME LIGHT */
+body.light{--bg:#f8f8f8;--surface:#ffffff;--surface2:#f0f0f0;--surface3:#e0e0e0;--border:#d0d0d0;--text:#1e1e1e;--muted:#6a6a6a;--scrollbar:#c0c0c0}
 </style>
 </head>
 <body>
@@ -367,6 +432,18 @@ td.url-c{font-family:'Cascadia Code','Consolas',monospace;font-size:10px}
         <div class="tb-drop-item" id="tool-overrides">📁 Local Overrides</div>
         <div class="tb-drop-item" id="tool-inject">💉 Inject Headers</div>
         <div class="tb-drop-sep"></div>
+        <div class="tb-drop-item" id="tool-compare">⇄ Compare Responses</div>
+        <div class="tb-drop-item" id="tool-postman">📮 Export Postman</div>
+        <div class="tb-drop-sep"></div>
+        <div class="tb-drop-item" id="tool-budget">💰 Load Budget</div>
+        <div class="tb-drop-item" id="tool-alerts">🔔 Alert Rules</div>
+        <div class="tb-drop-item" id="tool-presets">📂 Filter Presets</div>
+        <div class="tb-drop-sep"></div>
+        <div class="tb-drop-item" id="tool-history">📈 History Chart</div>
+        <div class="tb-drop-item" id="tool-multitab">🗂 Monitor Tab</div>
+        <div class="tb-drop-item" id="tool-clipboard">📋 Clipboard Log</div>
+        <div class="tb-drop-item" id="tool-beacons">🔦 Beacon Log</div>
+        <div class="tb-drop-sep"></div>
         <div class="tb-drop-item" id="tool-save">💾 Save Session</div>
         <div class="tb-drop-item" id="tool-sessions">📂 Load Session</div>
         <div class="tb-drop-sep"></div>
@@ -374,9 +451,16 @@ td.url-c{font-family:'Cascadia Code','Consolas',monospace;font-size:10px}
       </div>
     </div>
     <div class="tb-sep"></div>
+    <button class="tb-btn" id="pause-btn" title="Pause all network requests">⏸ Pause</button>
+    <button class="tb-btn" id="baseline-btn" title="Pin current as baseline for diff">📌 Baseline</button>
+    <div class="tb-sep"></div>
     <div id="sparkline"></div>
     <span id="spark-label"></span>
     <div class="tb-sep"></div>
+    <button class="tb-btn" id="font-dec" title="Decrease font size" style="padding:3px 7px">A-</button>
+    <button class="tb-btn" id="font-inc" title="Increase font size" style="padding:3px 7px">A+</button>
+    <button class="tb-btn" id="theme-btn" title="Toggle light/dark theme">🌙</button>
+    <button class="tb-btn" id="shortcuts-btn" title="Keyboard shortcuts">⌨</button>
     <button class="tb-btn" id="settings-btn">⚙</button>
   </div>
 
@@ -406,6 +490,7 @@ td.url-c{font-family:'Cascadia Code','Consolas',monospace;font-size:10px}
         <select class="filter-select" id="type-filter">
           <option value="">All types</option><option>XHR</option><option>Fetch</option><option>Document</option><option>Script</option><option>Stylesheet</option><option>Image</option>
         </select>
+        <button class="tb-btn" id="dedup-btn" title="Highlight duplicate requests" style="padding:3px 8px;font-size:11px">Dedup</button>
         <span class="sel-count" id="sel-count"></span>
         <button class="ask-btn" id="ask-net-btn" disabled>Ask AI ▶</button>
       </div>
@@ -512,6 +597,8 @@ td.url-c{font-family:'Cascadia Code','Consolas',monospace;font-size:10px}
     <div class="panel" id="panel-performance">
       <div class="filter-bar">
         <span style="font-size:11px;color:var(--muted)">Live stats from captured requests</span>
+        <button class="tb-btn" id="dns-btn" style="padding:3px 9px;font-size:11px" title="Analyze prefetch/preconnect/preload links">🔗 DNS Links</button>
+        <button class="tb-btn" id="retry-btn" style="padding:3px 9px;font-size:11px" title="Replay all failed requests">↺ Retry Errors</button>
         <button class="ask-btn" id="perf-scan-btn">Ask AI ▶</button>
       </div>
       <div id="perf-wrap">
@@ -726,6 +813,157 @@ td.url-c{font-family:'Cascadia Code','Consolas',monospace;font-size:10px}
     <p class="s-hint" id="diff-label"></p>
     <div id="diff-content" style="display:flex;flex-direction:column;gap:8px;max-height:420px;overflow-y:auto"></div>
     <div class="s-actions"><button class="s-btn sec" id="diff-close">Close</button></div>
+  </div>
+</div>
+
+<!-- COMPARISON -->
+<div class="modal" id="compare-modal">
+  <div class="modal-box" style="width:780px;max-height:90vh">
+    <h3>⇄ Compare Responses</h3>
+    <p class="s-hint">Select two requests in the Network tab then open this tool.</p>
+    <div class="cmp-panes" id="cmp-panes">
+      <div class="cmp-pane"><h4 id="cmp-a-lbl">Request A</h4><div class="cmp-body" id="cmp-a"></div></div>
+      <div class="cmp-pane"><h4 id="cmp-b-lbl">Request B</h4><div class="cmp-body" id="cmp-b"></div></div>
+    </div>
+    <div class="s-actions"><button class="s-btn sec" id="cmp-close">Close</button></div>
+  </div>
+</div>
+
+<!-- BUDGET -->
+<div class="modal" id="budget-modal">
+  <div class="modal-box" style="width:480px">
+    <h3>💰 Page Load Budget</h3>
+    <p class="s-hint">Show a warning when captured traffic exceeds these limits.</p>
+    <div class="s-row">
+      <div class="s-field"><label>Max Requests</label><input type="number" id="bdg-reqs" placeholder="e.g. 100" min="1"></div>
+      <div class="s-field"><label>Max Total Size (KB)</label><input type="number" id="bdg-size" placeholder="e.g. 2048" min="1"></div>
+    </div>
+    <div class="s-row">
+      <div class="s-field"><label>Max Errors (4xx/5xx)</label><input type="number" id="bdg-errs" placeholder="e.g. 0" min="0"></div>
+      <div class="s-field"><label>Max Slow (>1s TTFB)</label><input type="number" id="bdg-slow" placeholder="e.g. 3" min="0"></div>
+    </div>
+    <div id="bdg-status" style="font-size:11px;margin-top:4px"></div>
+    <div class="s-actions"><button class="s-btn sec" id="bdg-cancel">Close</button><button class="s-btn primary" id="bdg-save">Save Budget</button></div>
+  </div>
+</div>
+
+<!-- ALERT RULES -->
+<div class="modal" id="alerts-modal">
+  <div class="modal-box" style="width:520px">
+    <h3>🔔 Alert Rules</h3>
+    <p class="s-hint">Get a toast when a request matches a condition.</p>
+    <div class="s-field"><label>URL Pattern</label><input type="text" id="alr-pattern" placeholder="api/login or .*\.png$"></div>
+    <div class="s-row">
+      <div class="s-field"><label>Status (blank = any)</label><input type="number" id="alr-status" placeholder="e.g. 401"></div>
+      <div class="s-field"><label>Condition</label>
+        <select id="alr-cond">
+          <option value="status">Status equals</option>
+          <option value="error">Is an error (4xx/5xx)</option>
+          <option value="slow">Is slow (>1s)</option>
+          <option value="any">Any match</option>
+        </select>
+      </div>
+    </div>
+    <div class="s-actions" style="justify-content:space-between"><button class="s-btn primary" id="alr-add-btn">+ Add Rule</button><button class="s-btn sec" id="alr-cancel">Close</button></div>
+    <div id="alr-list" style="display:flex;flex-direction:column;gap:4px;max-height:180px;overflow-y:auto;margin-top:6px"></div>
+  </div>
+</div>
+
+<!-- FILTER PRESETS -->
+<div class="modal" id="presets-modal">
+  <div class="modal-box" style="width:440px">
+    <h3>📂 Filter Presets</h3>
+    <p class="s-hint">Save and restore named filter combinations.</p>
+    <div style="display:flex;gap:6px;margin-bottom:8px">
+      <input type="text" id="pst-name" placeholder="Preset name..." style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:3px;color:var(--text);padding:5px 8px;font-size:12px;outline:none;font-family:inherit">
+      <button class="s-btn primary" id="pst-save-btn">Save Current</button>
+    </div>
+    <div id="pst-list" style="display:flex;flex-direction:column;gap:4px;max-height:240px;overflow-y:auto"></div>
+    <div class="s-actions"><button class="s-btn sec" id="pst-close">Close</button></div>
+  </div>
+</div>
+
+<!-- HISTORY CHART -->
+<div class="modal" id="history-modal">
+  <div class="modal-box" style="width:560px">
+    <h3>📈 Request History</h3>
+    <p class="s-hint" id="hist-subtitle">Requests per second over session</p>
+    <div class="hist-bar-wrap" id="hist-bars"></div>
+    <div class="hist-axis" id="hist-axis"></div>
+    <div class="s-actions"><button class="s-btn sec" id="hist-close">Close</button></div>
+  </div>
+</div>
+
+<!-- MULTI-TAB PICKER -->
+<div class="modal" id="multitab-modal">
+  <div class="modal-box" style="width:480px">
+    <h3>🗂 Monitor Another Tab</h3>
+    <p class="s-hint">Open the inspector for a different browser tab.</p>
+    <div id="tab-list" style="display:flex;flex-direction:column;gap:4px;max-height:300px;overflow-y:auto"></div>
+    <div class="s-actions"><button class="s-btn sec" id="mt-close">Close</button></div>
+  </div>
+</div>
+
+<!-- SHORTCUTS -->
+<div class="modal" id="shortcuts-modal">
+  <div class="modal-box" style="width:520px">
+    <h3>⌨ Keyboard Shortcuts</h3>
+    <div class="kbd-grid">
+      <div class="kbd-row"><kbd>S</kbd><span>Start / Stop capture</span></div>
+      <div class="kbd-row"><kbd>C</kbd><span>Clear all data</span></div>
+      <div class="kbd-row"><kbd>/</kbd><span>Focus global search</span></div>
+      <div class="kbd-row"><kbd>F</kbd><span>Focus URL filter</span></div>
+      <div class="kbd-row"><kbd>Esc</kbd><span>Close modal / clear selection</span></div>
+      <div class="kbd-row"><kbd>1</kbd>–<kbd>8</kbd><span>Switch tabs</span></div>
+      <div class="kbd-row"><kbd>Ctrl+Enter</kbd><span>Send AI chat</span></div>
+      <div class="kbd-row"><kbd>Ctrl+E</kbd><span>Export HAR</span></div>
+      <div class="kbd-row"><kbd>Ctrl+R</kbd><span>Replay selected request</span></div>
+      <div class="kbd-row"><kbd>Ctrl+B</kbd><span>Compare selected requests</span></div>
+      <div class="kbd-row"><kbd>Delete</kbd><span>Clear selected requests</span></div>
+      <div class="kbd-row"><kbd>?</kbd><span>Show this dialog</span></div>
+    </div>
+    <div class="s-actions"><button class="s-btn sec" id="sc-close">Close</button></div>
+  </div>
+</div>
+
+<!-- CLIPBOARD LOG -->
+<div class="modal" id="clipboard-modal">
+  <div class="modal-box" style="width:520px">
+    <h3>📋 Clipboard Sniffer</h3>
+    <p class="s-hint">Text the page has copied to clipboard (via copy events).</p>
+    <div id="clip-list" style="display:flex;flex-direction:column;gap:4px;max-height:320px;overflow-y:auto"></div>
+    <div class="s-actions"><button class="s-btn sec" id="clip-close">Close</button><button class="s-btn primary" id="clip-refresh">↻ Refresh</button></div>
+  </div>
+</div>
+
+<!-- BEACON LOG -->
+<div class="modal" id="beacon-modal">
+  <div class="modal-box" style="width:580px">
+    <h3>🔦 Beacon Tracker</h3>
+    <p class="s-hint">navigator.sendBeacon() calls captured from the page.</p>
+    <div id="beacon-list" style="display:flex;flex-direction:column;gap:4px;max-height:320px;overflow-y:auto"></div>
+    <div class="s-actions"><button class="s-btn sec" id="beacon-close">Close</button><button class="s-btn primary" id="beacon-refresh">↻ Refresh</button></div>
+  </div>
+</div>
+
+<!-- WS SENDER -->
+<div class="modal" id="ws-send-modal">
+  <div class="modal-box" style="width:500px">
+    <h3>📤 Send WebSocket Message</h3>
+    <div class="s-field"><label>Socket URL</label><input type="text" id="wss-url" style="font-family:monospace;font-size:11px" readonly></div>
+    <div class="s-field"><label>Message</label><textarea id="wss-data" rows="5" style="resize:vertical;font-family:monospace;font-size:11px" placeholder='{"type":"ping"}'></textarea></div>
+    <div id="wss-result" style="font-size:11px;color:var(--muted);min-height:18px"></div>
+    <div class="s-actions"><button class="s-btn sec" id="wss-close">Cancel</button><button class="s-btn primary" id="wss-send">Send ↑</button></div>
+  </div>
+</div>
+
+<!-- ANNOTATION -->
+<div class="modal" id="annotation-modal">
+  <div class="modal-box" style="width:440px">
+    <h3>📝 Request Note</h3>
+    <div class="s-field"><label>Note</label><textarea id="ann-text" rows="4" style="resize:vertical" placeholder="Add a note about this request..."></textarea></div>
+    <div class="s-actions"><button class="s-btn danger" id="ann-del">Delete</button><button class="s-btn sec" id="ann-cancel">Cancel</button><button class="s-btn primary" id="ann-save">Save</button></div>
+    <input type="hidden" id="ann-id">
   </div>
 </div>
 
