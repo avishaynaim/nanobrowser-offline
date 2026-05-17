@@ -100770,6 +100770,25 @@ ${sourceUrlComment}
     } catch (e) {
       console.warn('[inspector] enable failed:', e.message);
     }
+    // Inject WS tracker, sendBeacon interceptor, clipboard sniffer
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId }, world: 'MAIN',
+        func: () => {
+          if (window.__iwsInit) return;
+          window.__iwsInit = true;
+          window.__iwsSockets = new Map();
+          window.__iwsBeacons = [];
+          window.__iwsClips = [];
+          const OrigWS = window.WebSocket;
+          window.WebSocket = function(...a) { const ws = new OrigWS(...a); window.__iwsSockets.set(a[0], ws); return ws; };
+          Object.assign(window.WebSocket, OrigWS);
+          const origBeacon = navigator.sendBeacon.bind(navigator);
+          navigator.sendBeacon = function(url, data) { window.__iwsBeacons.push({ url, data: typeof data === 'string' ? data.slice(0,500) : '[binary]', ts: Date.now() }); return origBeacon(url, data); };
+          document.addEventListener('copy', e => { const t = e.clipboardData?.getData('text/plain') || window.getSelection()?.toString() || ''; if (t) window.__iwsClips.push({ text: t.slice(0,1000), ts: Date.now() }); });
+        },
+      });
+    } catch {}
     // Load persisted overrides and activate Fetch if needed
     try {
       const d = await chrome.storage.local.get('inspector-overrides');
@@ -101109,6 +101128,59 @@ ${sourceUrlComment}
             await chrome.debugger.sendCommand({ tabId }, 'Network.emulateNetworkConditions', presets[msg.preset] || presets.none);
             reply({ ok: true });
           } catch (e) { reply({ ok: false, error: e.message }); }
+          break;
+        }
+        case 'INS_NET_PAUSE': {
+          const store = captureStore.get(tabId);
+          if (!store?.attached) { reply({ ok: false, error: 'Not attached' }); break; }
+          try {
+            const cond = msg.pause
+              ? { offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1 }
+              : { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 };
+            await chrome.debugger.sendCommand({ tabId }, 'Network.emulateNetworkConditions', cond);
+            reply({ ok: true });
+          } catch(e) { reply({ ok: false, error: e.message }); }
+          break;
+        }
+        case 'INS_WS_SEND': {
+          try {
+            const results = await chrome.scripting.executeScript({
+              target: { tabId }, world: 'MAIN',
+              func: (url, data) => {
+                const ws = window.__iwsSockets?.get(url);
+                if (!ws) return { ok: false, error: 'Socket not tracked — reload page with inspector already active' };
+                if (ws.readyState !== 1) return { ok: false, error: `Socket not open (readyState=${ws.readyState})` };
+                ws.send(data); return { ok: true };
+              },
+              args: [msg.url, msg.data],
+            });
+            reply(results?.[0]?.result || { ok: false, error: 'Script failed' });
+          } catch(e) { reply({ ok: false, error: e.message }); }
+          break;
+        }
+        case 'INS_BEACON_GET': {
+          try {
+            const results = await chrome.scripting.executeScript({ target: { tabId }, world: 'MAIN', func: () => window.__iwsBeacons || [] });
+            reply({ ok: true, beacons: results?.[0]?.result || [] });
+          } catch(e) { reply({ ok: false, beacons: [], error: e.message }); }
+          break;
+        }
+        case 'INS_CLIPBOARD_GET': {
+          try {
+            const results = await chrome.scripting.executeScript({ target: { tabId }, world: 'MAIN', func: () => window.__iwsClips || [] });
+            reply({ ok: true, clips: results?.[0]?.result || [] });
+          } catch(e) { reply({ ok: false, clips: [], error: e.message }); }
+          break;
+        }
+        case 'INS_DNS_PREFETCH': {
+          try {
+            const results = await chrome.scripting.executeScript({
+              target: { tabId },
+              func: () => [...document.querySelectorAll('link[rel~="prefetch"],link[rel~="preconnect"],link[rel~="dns-prefetch"],link[rel~="preload"]')]
+                .map(l => ({ rel: l.rel, href: l.href, as: l.as || '', crossOrigin: l.crossOrigin || '' })),
+            });
+            reply({ ok: true, links: results?.[0]?.result || [] });
+          } catch(e) { reply({ ok: false, links: [], error: e.message }); }
           break;
         }
       }
