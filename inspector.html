@@ -9,43 +9,44 @@
   --bg:#1e1e1e;--surface:#252526;--surface2:#2d2d30;--surface3:#3e3e42;
   --border:#3e3e42;--text:#cccccc;--muted:#858585;--accent:#569cd6;
   --green:#4ec9b0;--red:#f48771;--yellow:#dcdcaa;--orange:#ce9178;
-  --err:#f44747;--warn:#ff8c00;--info:#569cd6;--log:#cccccc;
+  --err:#f44747;--warn:#ff8c00;--info:#569cd6;
   --scrollbar:#424242;
 }
 html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;font-size:12px;overflow:hidden}
 #app{display:flex;flex-direction:column;height:100vh}
 
 /* TOOLBAR */
-#toolbar{display:flex;align-items:center;gap:5px;padding:5px 8px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap}
-#toolbar .title{font-size:13px;font-weight:600;color:var(--accent);margin-right:2px}
-#tab-url{font-size:11px;color:var(--muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:80px}
-.tb-btn{padding:3px 8px;border-radius:3px;border:1px solid var(--border);background:var(--surface2);color:var(--text);cursor:pointer;font-size:11px;transition:all .15s;white-space:nowrap}
+#toolbar{display:flex;align-items:center;gap:4px;padding:5px 8px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap}
+.title{font-size:13px;font-weight:600;color:var(--accent);margin-right:2px;white-space:nowrap}
+#tab-url{font-size:11px;color:var(--muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:60px}
+.tb-btn{padding:3px 8px;border-radius:3px;border:1px solid var(--border);background:var(--surface2);color:var(--text);cursor:pointer;font-size:11px;transition:all .15s;white-space:nowrap;font-family:inherit}
 .tb-btn:hover{border-color:var(--accent);color:var(--accent)}
-.tb-btn.danger:hover{border-color:var(--err);color:var(--err)}
-.tb-btn.active{border-color:var(--err);color:var(--err);background:rgba(244,71,71,.08)}
-#capture-btn.on{border-color:var(--err);color:var(--err)}
-#intercept-btn.on{border-color:var(--warn);color:var(--warn);background:rgba(255,140,0,.1)}
+.tb-btn.on{border-color:var(--err);color:var(--err);background:rgba(244,71,71,.08)}
+.tb-btn.warn-on{border-color:var(--warn);color:var(--warn);background:rgba(255,140,0,.1)}
+.tb-sep{width:1px;height:18px;background:var(--border);flex-shrink:0}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--muted);flex-shrink:0}
 .dot.live{background:var(--err);animation:pulse 1.5s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
-#global-search{background:var(--surface2);border:1px solid var(--border);border-radius:3px;color:var(--text);padding:3px 8px;font-size:11px;outline:none;width:140px}
+#global-search{background:var(--surface2);border:1px solid var(--border);border-radius:3px;color:var(--text);padding:3px 8px;font-size:11px;outline:none;width:130px}
 #global-search:focus{border-color:var(--accent)}
 #global-search::placeholder{color:var(--muted)}
 
-/* EXPORT DROPDOWN */
+/* DROPDOWN */
 .tb-drop{position:relative;display:inline-flex}
-.tb-drop-menu{display:none;position:absolute;top:100%;left:0;margin-top:2px;background:var(--surface);border:1px solid var(--border);border-radius:3px;z-index:100;min-width:130px}
+.tb-drop-menu{display:none;position:absolute;top:100%;left:0;margin-top:2px;background:var(--surface);border:1px solid var(--border);border-radius:3px;z-index:100;min-width:140px;box-shadow:0 4px 12px rgba(0,0,0,.4)}
 .tb-drop-menu.open{display:block}
-.tb-drop-item{padding:6px 12px;cursor:pointer;font-size:11px;color:var(--text);white-space:nowrap}
+.tb-drop-item{padding:7px 12px;cursor:pointer;font-size:11px;color:var(--text);white-space:nowrap}
 .tb-drop-item:hover{background:var(--surface2);color:var(--accent)}
+.tb-drop-sep{height:1px;background:var(--border);margin:2px 0}
 
 /* TABS */
 #tabs{display:flex;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;overflow-x:auto}
-.tab{padding:6px 14px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;font-size:12px;user-select:none;transition:all .15s;position:relative;white-space:nowrap}
+#tabs::-webkit-scrollbar{height:0}
+.tab{padding:6px 12px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;font-size:11px;user-select:none;transition:all .15s;white-space:nowrap}
 .tab:hover{color:var(--text)}
 .tab.active{color:var(--text);border-bottom-color:var(--accent)}
-.tab .badge{background:var(--accent);color:#fff;border-radius:8px;padding:0 5px;font-size:9px;margin-left:4px;vertical-align:middle}
-.tab .badge.err{background:var(--err)}
+.badge{background:var(--accent);color:#fff;border-radius:8px;padding:0 5px;font-size:9px;margin-left:3px;vertical-align:middle}
+.badge.err{background:var(--err)}
 
 /* PANELS */
 #panels{flex:1;overflow:hidden;display:flex;flex-direction:column}
@@ -53,140 +54,157 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Segoe 
 .panel.active{display:flex}
 
 /* FILTER BAR */
-.filter-bar{display:flex;align-items:center;gap:6px;padding:4px 8px;background:var(--surface2);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap}
+.filter-bar{display:flex;align-items:center;gap:5px;padding:4px 8px;background:var(--surface2);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap}
 .filter-input{flex:1;min-width:80px;background:var(--surface);border:1px solid var(--border);border-radius:3px;color:var(--text);padding:3px 8px;font-size:11px;outline:none}
 .filter-input:focus{border-color:var(--accent)}
-.filter-select{background:var(--surface);border:1px solid var(--border);border-radius:3px;color:var(--text);padding:3px 6px;font-size:11px;outline:none;cursor:pointer}
+.filter-select{background:var(--surface);border:1px solid var(--border);border-radius:3px;color:var(--text);padding:3px 5px;font-size:11px;outline:none;cursor:pointer}
 .sel-count{font-size:11px;color:var(--muted);white-space:nowrap}
-.ask-btn{padding:3px 10px;background:var(--accent);color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:11px;white-space:nowrap}
+.ask-btn{padding:3px 10px;background:var(--accent);color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:11px;white-space:nowrap;font-family:inherit}
 .ask-btn:hover{opacity:.85}
 .ask-btn:disabled{opacity:.4;cursor:not-allowed}
 
 /* NETWORK TABLE */
 #net-wrap{flex:1;overflow-y:auto;overflow-x:auto}
-#net-wrap::-webkit-scrollbar{width:8px;height:8px}
-#net-wrap::-webkit-scrollbar-thumb{background:var(--scrollbar);border-radius:4px}
-#net-wrap::-webkit-scrollbar-track{background:var(--bg)}
+#net-wrap::-webkit-scrollbar,#con-list::-webkit-scrollbar,#ws-wrap::-webkit-scrollbar,#stor-wrap::-webkit-scrollbar{width:8px;height:8px}
+#net-wrap::-webkit-scrollbar-thumb,#con-list::-webkit-scrollbar-thumb,#ws-wrap::-webkit-scrollbar-thumb,#stor-wrap::-webkit-scrollbar-thumb{background:var(--scrollbar);border-radius:4px}
 table{width:100%;border-collapse:collapse;table-layout:fixed}
 thead th{position:sticky;top:0;background:var(--surface2);padding:4px 6px;text-align:left;font-weight:600;font-size:11px;color:var(--muted);border-bottom:1px solid var(--border);white-space:nowrap}
-th.check-col,td.check-col{width:28px;text-align:center}
-th.method-col{width:52px}
-th.status-col{width:44px}
-th.type-col{width:60px}
-th.size-col{width:52px}
-th.time-col{width:80px}
-th.url-col{min-width:180px}
+th.chk{width:26px;text-align:center}th.met{width:50px}th.sta{width:42px}th.typ{width:58px}th.siz{width:52px}th.tim{width:82px}
 tbody tr{border-bottom:1px solid rgba(62,62,66,.4);cursor:pointer}
 tbody tr:hover{background:var(--surface2)}
-tbody tr.selected{background:rgba(86,156,214,.1)}
-tbody tr.expanded{background:rgba(86,156,214,.05)}
+tbody tr.sel{background:rgba(86,156,214,.1)}
 td{padding:3px 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px}
-td.url-col{font-family:'Cascadia Code','Consolas',monospace;font-size:10px}
-.status-2{color:var(--green)}.status-3{color:var(--accent)}.status-4{color:var(--orange)}.status-5{color:var(--err)}.status-err{color:var(--err);font-style:italic}
-.method-get{color:var(--green)}.method-post{color:var(--accent)}.method-put{color:var(--yellow)}.method-delete{color:var(--err)}.method-patch{color:var(--orange)}
+td.url-c{font-family:'Cascadia Code','Consolas',monospace;font-size:10px}
+.s2{color:var(--green)}.s3{color:var(--accent)}.s4{color:var(--orange)}.s5{color:var(--err)}.serr{color:var(--err);font-style:italic}
+.mg{color:var(--green)}.mp{color:var(--accent)}.mu{color:var(--yellow)}.md{color:var(--err)}.mh{color:var(--orange)}
+.wf-w{display:flex;align-items:center;gap:4px}.wf-bg{flex:1;height:5px;background:var(--surface3);border-radius:2px;overflow:hidden;min-width:16px}.wf-bar{height:100%;border-radius:2px;background:var(--accent);min-width:2px}.wf-ms{font-size:10px;color:var(--muted);flex-shrink:0;min-width:36px;text-align:right}
 
-/* WATERFALL */
-.wf-wrap{display:flex;align-items:center;gap:4px;width:100%}
-.wf-bar-bg{flex:1;height:6px;background:var(--surface3);border-radius:2px;overflow:hidden;min-width:20px}
-.wf-bar{height:100%;border-radius:2px;background:var(--accent);min-width:2px}
-.wf-ms{font-size:10px;color:var(--muted);flex-shrink:0;min-width:36px;text-align:right}
-
-/* DETAIL PANE */
-.detail-row td{padding:0}
-.detail-pane{background:var(--bg);border-top:1px solid var(--border);padding:8px}
-.detail-tabs{display:flex;gap:2px;margin-bottom:8px;align-items:center}
-.d-tab{padding:2px 10px;border-radius:3px;cursor:pointer;color:var(--muted);font-size:11px}
-.d-tab:hover{color:var(--text)}
-.d-tab.active{background:var(--surface2);color:var(--text)}
-.d-tab-curl{margin-left:auto;padding:2px 10px;border-radius:3px;border:1px solid var(--border);background:var(--surface2);color:var(--muted);font-size:11px;cursor:pointer}
-.d-tab-curl:hover{color:var(--accent);border-color:var(--accent)}
-.detail-content{font-family:'Cascadia Code','Consolas',monospace;font-size:11px;color:var(--text);white-space:pre-wrap;word-break:break-all;max-height:240px;overflow-y:auto;padding:6px;background:var(--surface2);border-radius:3px;border:1px solid var(--border)}
-.detail-content::-webkit-scrollbar{width:6px}
-.detail-content::-webkit-scrollbar-thumb{background:var(--scrollbar);border-radius:3px}
+/* DETAIL */
+.det-row td{padding:0}
+.det-pane{background:var(--bg);border-top:1px solid var(--border);padding:8px}
+.det-tabs{display:flex;gap:2px;margin-bottom:6px;align-items:center;flex-wrap:wrap}
+.d-t{padding:2px 9px;border-radius:3px;cursor:pointer;color:var(--muted);font-size:11px}
+.d-t:hover{color:var(--text)}.d-t.active{background:var(--surface2);color:var(--text)}
+.d-curl{margin-left:auto;padding:2px 9px;border-radius:3px;border:1px solid var(--border);background:var(--surface2);color:var(--muted);font-size:11px;cursor:pointer;font-family:inherit}
+.d-curl:hover{color:var(--accent);border-color:var(--accent)}
+.det-c{font-family:'Cascadia Code','Consolas',monospace;font-size:11px;white-space:pre-wrap;word-break:break-all;max-height:220px;overflow-y:auto;padding:6px;background:var(--surface2);border-radius:3px;border:1px solid var(--border)}
+.det-c::-webkit-scrollbar{width:5px}.det-c::-webkit-scrollbar-thumb{background:var(--scrollbar);border-radius:3px}
 
 /* CONSOLE */
 #con-list{flex:1;overflow-y:auto;font-family:'Cascadia Code','Consolas',monospace;font-size:11px}
-#con-list::-webkit-scrollbar{width:8px}
-#con-list::-webkit-scrollbar-thumb{background:var(--scrollbar);border-radius:4px}
-.log-entry{display:flex;gap:8px;padding:3px 8px;border-bottom:1px solid rgba(62,62,66,.3);align-items:flex-start}
-.log-entry:hover{background:var(--surface2)}
-.log-entry.error{background:rgba(244,71,71,.08);border-left:2px solid var(--err)}
-.log-entry.warning{background:rgba(255,140,0,.06);border-left:2px solid var(--warn)}
+.log-e{display:flex;gap:8px;padding:3px 8px;border-bottom:1px solid rgba(62,62,66,.3);align-items:flex-start;cursor:pointer}
+.log-e:hover{background:var(--surface2)}
+.log-e.error{background:rgba(244,71,71,.08);border-left:2px solid var(--err)}
+.log-e.warning{background:rgba(255,140,0,.06);border-left:2px solid var(--warn)}
 .log-icon{font-size:12px;flex-shrink:0;margin-top:1px}
-.log-text{flex:1;white-space:pre-wrap;word-break:break-all;color:var(--text)}
+.log-txt{flex:1;white-space:pre-wrap;word-break:break-all}
 .log-src{font-size:10px;color:var(--muted);flex-shrink:0;align-self:center}
-.log-entry.error .log-text{color:var(--err)}
-.log-entry.warning .log-text{color:var(--warn)}
-.log-entry.info .log-text{color:var(--info)}
+.log-e.error .log-txt{color:var(--err)}.log-e.warning .log-txt{color:var(--warn)}.log-e.info .log-txt{color:var(--info)}
 
-/* WEBSOCKET */
+/* WEBSOCKETS */
 .ws-conn{border-bottom:1px solid var(--border);font-size:11px}
-.ws-conn-hdr{display:flex;align-items:center;gap:8px;padding:5px 8px;cursor:pointer;background:var(--surface2)}
-.ws-conn-hdr:hover{background:var(--surface3)}
-.ws-conn-url{font-family:'Cascadia Code','Consolas',monospace;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ws-conn-meta{color:var(--muted);font-size:10px;flex-shrink:0}
+.ws-hdr{display:flex;align-items:center;gap:8px;padding:5px 8px;cursor:pointer;background:var(--surface2)}
+.ws-hdr:hover{background:var(--surface3)}
+.ws-url{font-family:'Cascadia Code','Consolas',monospace;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ws-meta{color:var(--muted);font-size:10px;flex-shrink:0}
 .ws-dot{width:7px;height:7px;border-radius:50%;background:var(--green);flex-shrink:0}
 .ws-dot.closed{background:var(--muted)}
 .ws-frames{display:none;padding:0 8px 6px}
 .ws-conn.open .ws-frames{display:block}
 .ws-frame{display:flex;align-items:flex-start;gap:6px;padding:3px 0;border-bottom:1px solid rgba(62,62,66,.3)}
 .ws-frame:last-child{border-bottom:none}
-.ws-frame input[type=checkbox]{flex-shrink:0;margin-top:2px}
-.ws-dir{font-size:10px;font-weight:600;flex-shrink:0;width:30px}
+.ws-frame input{flex-shrink:0;margin-top:2px}
+.ws-dir{font-size:10px;font-weight:600;flex-shrink:0;width:28px}
 .ws-dir.sent{color:var(--accent)}.ws-dir.recv{color:var(--green)}
-.ws-data{flex:1;font-family:'Cascadia Code','Consolas',monospace;font-size:10px;white-space:pre-wrap;word-break:break-all;max-height:80px;overflow-y:auto;color:var(--text)}
+.ws-data{flex:1;font-family:'Cascadia Code','Consolas',monospace;font-size:10px;white-space:pre-wrap;word-break:break-all;max-height:80px;overflow-y:auto}
 .ws-ts{font-size:10px;color:var(--muted);flex-shrink:0;white-space:nowrap}
 
-/* STORAGE TABLE */
-#stor-tbody td{padding:4px 6px;font-size:11px;border-bottom:1px solid rgba(62,62,66,.4);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default}
-#stor-tbody td:nth-child(2){font-family:'Cascadia Code','Consolas',monospace;color:var(--yellow)}
-#stor-tbody td:nth-child(3){font-family:'Cascadia Code','Consolas',monospace;color:var(--orange);max-width:500px}
+/* STORAGE */
+#stor-tbody td{padding:4px 6px;font-size:11px;border-bottom:1px solid rgba(62,62,66,.4);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#stor-tbody td:nth-child(2){font-family:monospace;color:var(--yellow)}
+#stor-tbody td:nth-child(3){font-family:monospace;color:var(--orange)}
 #stor-tbody tr:hover td{background:var(--surface2)}
-#stor-tbody tr.selected td{background:rgba(86,156,214,.1)}
+#stor-tbody tr.sel td{background:rgba(86,156,214,.1)}
 
 /* REPL */
 #repl-out{flex:1;overflow-y:auto;font-family:'Cascadia Code','Consolas',monospace;font-size:11px;padding:4px}
 #repl-out::-webkit-scrollbar{width:6px}
 #repl-out::-webkit-scrollbar-thumb{background:var(--scrollbar);border-radius:3px}
 .repl-entry{padding:4px 6px;border-bottom:1px solid rgba(62,62,66,.3)}
-.repl-in{color:var(--accent)}
-.repl-in::before{content:'> ';color:var(--muted)}
-.repl-result{color:var(--green);white-space:pre-wrap;word-break:break-all}
-.repl-error{color:var(--err);white-space:pre-wrap}
-.repl-input-row{display:flex;gap:6px;padding:6px 8px;border-top:1px solid var(--border);background:var(--surface);flex-shrink:0}
+.repl-in{color:var(--accent)}.repl-in::before{content:'> ';color:var(--muted)}
+.repl-ok{color:var(--green);white-space:pre-wrap;word-break:break-all}
+.repl-err{color:var(--err);white-space:pre-wrap}
+.repl-bar{display:flex;gap:6px;padding:6px 8px;border-top:1px solid var(--border);background:var(--surface);flex-shrink:0}
 #repl-input{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:3px;color:var(--text);padding:5px 8px;font-size:12px;font-family:'Cascadia Code','Consolas',monospace;outline:none}
 #repl-input:focus{border-color:var(--accent)}
-.repl-run{padding:4px 12px;background:var(--accent);color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:11px}
-.repl-run:hover{opacity:.85}
-.repl-ask{padding:4px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:3px;cursor:pointer;font-size:11px;color:var(--text)}
+.repl-run{padding:4px 12px;background:var(--accent);color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:11px;font-family:inherit}
+.repl-ask{padding:4px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:3px;cursor:pointer;font-size:11px;color:var(--text);font-family:inherit}
 .repl-ask:hover{border-color:var(--accent);color:var(--accent)}
+
+/* PERFORMANCE PANEL */
+#perf-wrap{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:12px}
+#perf-wrap::-webkit-scrollbar{width:6px}
+#perf-wrap::-webkit-scrollbar-thumb{background:var(--scrollbar);border-radius:3px}
+.perf-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px}
+.perf-card{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px 12px}
+.perf-card-val{font-size:22px;font-weight:600;color:var(--accent)}
+.perf-card-lbl{font-size:10px;color:var(--muted);margin-top:2px;text-transform:uppercase;letter-spacing:.05em}
+.perf-section{background:var(--surface);border:1px solid var(--border);border-radius:6px;overflow:hidden}
+.perf-hdr{padding:8px 12px;background:var(--surface2);font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.perf-row{display:flex;align-items:center;gap:8px;padding:6px 12px;border-top:1px solid var(--border);font-size:11px}
+.perf-row:hover{background:var(--surface2)}
+.perf-url{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:monospace;font-size:10px;color:var(--muted)}
+.perf-val{flex-shrink:0;font-weight:600;color:var(--yellow);width:60px;text-align:right}
+.perf-bar-row{padding:6px 12px;border-top:1px solid var(--border)}
+.perf-bar-lbl{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-bottom:3px}
+.perf-bar-bg{height:8px;background:var(--surface3);border-radius:4px;overflow:hidden}
+.perf-bar-fill{height:100%;border-radius:4px;background:var(--accent);transition:width .3s}
+.perf-empty{flex:1;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px}
+
+/* SECURITY PANEL */
+#sec-wrap{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px}
+#sec-wrap::-webkit-scrollbar{width:6px}
+#sec-wrap::-webkit-scrollbar-thumb{background:var(--scrollbar);border-radius:3px}
+.sec-score{display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:12px 16px}
+.sec-grade{font-size:36px;font-weight:700;width:48px;text-align:center;border-radius:6px;padding:4px}
+.grade-a{color:#fff;background:#2d7a3a}.grade-b{color:#fff;background:#5a7a2d}.grade-c{color:#fff;background:#7a6d2d}.grade-d{color:#fff;background:#7a3d2d}.grade-f{color:#fff;background:#7a1a1a}
+.sec-summary{flex:1}
+.sec-summary h4{font-size:13px;margin-bottom:3px}
+.sec-summary p{font-size:11px;color:var(--muted)}
+.sec-section{background:var(--surface);border:1px solid var(--border);border-radius:6px;overflow:hidden}
+.sec-hdr{padding:8px 12px;background:var(--surface2);font-size:11px;font-weight:600;display:flex;align-items:center;gap:8px}
+.sec-hdr .cnt{background:var(--err);color:#fff;border-radius:10px;padding:0 6px;font-size:10px}
+.sec-hdr .cnt.warn{background:var(--warn)}
+.sec-issue{padding:7px 12px;border-top:1px solid var(--border);font-size:11px}
+.sec-issue:hover{background:var(--surface2)}
+.sec-issue-title{color:var(--text);font-weight:500}
+.sec-issue-detail{color:var(--muted);font-size:10px;margin-top:2px;font-family:monospace;word-break:break-all}
+.sec-ok{padding:8px 12px;border-top:1px solid var(--border);font-size:11px;color:var(--green)}
+.sec-ask{padding:4px 10px;background:var(--accent);color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:11px;font-family:inherit;margin-left:auto}
 
 /* AI CHAT */
 #chat-panel{display:none;flex:1;overflow:hidden;flex-direction:column}
 #chat-panel.active{display:flex}
-#chat-context-bar{display:flex;align-items:center;gap:6px;padding:5px 10px;background:var(--surface2);border-bottom:1px solid var(--border);flex-wrap:wrap;flex-shrink:0}
+#chat-ctx-bar{display:flex;align-items:center;gap:5px;padding:5px 10px;background:var(--surface2);border-bottom:1px solid var(--border);flex-wrap:wrap;flex-shrink:0}
 .ctx-chip{display:flex;align-items:center;gap:3px;padding:2px 8px;border-radius:10px;border:1px solid rgba(86,156,214,.4);background:rgba(86,156,214,.1);color:var(--accent);font-size:10px}
-.ctx-chip .rm{cursor:pointer;opacity:.6;margin-left:2px}
-.ctx-chip .rm:hover{opacity:1}
+.ctx-chip .rm{cursor:pointer;opacity:.6;margin-left:2px}.ctx-chip .rm:hover{opacity:1}
 #chat-msgs{flex:1;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:8px}
 #chat-msgs::-webkit-scrollbar{width:6px}
 #chat-msgs::-webkit-scrollbar-thumb{background:var(--scrollbar);border-radius:3px}
 .cmsg{display:flex;flex-direction:column;gap:3px}
-.cmsg.user{align-items:flex-end}
-.cmsg.assistant{align-items:flex-start;width:100%}
+.cmsg.user{align-items:flex-end}.cmsg.assistant{align-items:flex-start;width:100%}
 .cmsg-role{font-size:10px;color:var(--muted);padding:0 4px}
-.cmsg-bubble{padding:8px 10px;border-radius:6px;max-width:90%;word-break:break-word;white-space:pre-wrap;line-height:1.5}
-.cmsg.user .cmsg-bubble{background:#1a2740;border:1px solid rgba(86,156,214,.3);border-bottom-right-radius:2px;font-size:12px}
-.cmsg.assistant .cmsg-bubble{background:var(--surface);border:1px solid var(--border);border-bottom-left-radius:2px;width:100%;font-size:12px}
+.cmsg-bubble{padding:8px 10px;border-radius:6px;max-width:90%;word-break:break-word;white-space:pre-wrap;line-height:1.5;font-size:12px}
+.cmsg.user .cmsg-bubble{background:#1a2740;border:1px solid rgba(86,156,214,.3);border-bottom-right-radius:2px}
+.cmsg.assistant .cmsg-bubble{background:var(--surface);border:1px solid var(--border);border-bottom-left-radius:2px;width:100%}
 .code-block{background:var(--bg);border:1px solid var(--border);border-radius:4px;margin:4px 0;overflow:hidden}
 .code-hdr{display:flex;justify-content:space-between;padding:2px 8px;background:var(--surface2);font-size:10px;color:var(--muted)}
-.code-cp{cursor:pointer;border:none;background:none;color:var(--muted);font-size:10px}
+.code-cp{cursor:pointer;border:none;background:none;color:var(--muted);font-size:10px;font-family:inherit}
 .code-cp:hover{color:var(--text)}
-.code-block pre{padding:8px;overflow-x:auto;font-family:'Cascadia Code','Consolas',monospace;font-size:11px;color:var(--text);margin:0;white-space:pre}
+.code-block pre{padding:8px;overflow-x:auto;font-family:'Cascadia Code','Consolas',monospace;font-size:11px;margin:0;white-space:pre}
 .typing-dots{display:flex;gap:3px;padding:8px}
 .typing-dots span{width:5px;height:5px;background:var(--accent);border-radius:50%;animation:tdot 1.2s infinite}
-.typing-dots span:nth-child(2){animation-delay:.2s}
-.typing-dots span:nth-child(3){animation-delay:.4s}
+.typing-dots span:nth-child(2){animation-delay:.2s}.typing-dots span:nth-child(3){animation-delay:.4s}
 @keyframes tdot{0%,80%,100%{transform:translateY(0);opacity:.4}40%{transform:translateY(-4px);opacity:1}}
 #chat-input-area{border-top:1px solid var(--border);padding:8px;background:var(--surface);display:flex;gap:6px;align-items:flex-end;flex-shrink:0}
 #chat-prompt{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;resize:none;outline:none;min-height:36px;max-height:120px;font-family:inherit}
@@ -194,85 +212,141 @@ td.url-col{font-family:'Cascadia Code','Consolas',monospace;font-size:10px}
 #chat-prompt::placeholder{color:var(--muted)}
 #chat-send{width:32px;height:32px;background:var(--accent);border:none;border-radius:4px;cursor:pointer;color:#fff;font-size:14px;flex-shrink:0}
 #chat-send:disabled{opacity:.4;cursor:not-allowed}
-#chat-stop{width:32px;height:32px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;cursor:pointer;color:var(--err);font-size:12px;display:none;flex-shrink:0}
-#chat-stop.vis{display:flex;align-items:center;justify-content:center}
+#chat-stop{width:32px;height:32px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;cursor:pointer;color:var(--err);font-size:12px;display:none;align-items:center;justify-content:center;flex-shrink:0}
+#chat-stop.vis{display:flex}
 
 /* MODALS */
 .modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;align-items:center;justify-content:center}
 .modal.open{display:flex}
-.modal-box{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:18px;width:520px;max-width:96vw;max-height:90vh;overflow-y:auto;display:flex;flex-direction:column;gap:12px}
+.modal-box{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:18px;width:500px;max-width:95vw;max-height:88vh;overflow-y:auto;display:flex;flex-direction:column;gap:12px}
 .modal-box h3{font-size:14px;font-weight:600}
 .s-field{display:flex;flex-direction:column;gap:4px}
 .s-field label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
 .s-field input,.s-field select,.s-field textarea{background:var(--surface2);border:1px solid var(--border);border-radius:3px;color:var(--text);padding:6px 8px;font-size:12px;outline:none;font-family:inherit}
 .s-field input:focus,.s-field select:focus,.s-field textarea:focus{border-color:var(--accent)}
 .s-hint{font-size:10px;color:var(--muted)}
-.s-row{display:flex;gap:8px}
-.s-row .s-field{flex:1}
-.s-actions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
-.s-btn{padding:6px 16px;border-radius:3px;border:none;font-size:12px;cursor:pointer;font-family:inherit}
-.s-btn.primary{background:var(--accent);color:#fff}
-.s-btn.primary:hover{opacity:.85}
-.s-btn.danger{background:var(--err);color:#fff}
-.s-btn.danger:hover{opacity:.85}
-.s-btn.sec{background:var(--surface2);border:1px solid var(--border);color:var(--text)}
-.s-btn.sec:hover{border-color:var(--accent)}
+.s-row{display:flex;gap:8px}.s-row .s-field{flex:1}
+.s-actions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:4px}
+.s-btn{padding:6px 14px;border-radius:3px;border:none;font-size:12px;cursor:pointer;font-family:inherit}
+.s-btn.primary{background:var(--accent);color:#fff}.s-btn.primary:hover{opacity:.85}
+.s-btn.danger{background:var(--err);color:#fff}.s-btn.danger:hover{opacity:.85}
+.s-btn.sec{background:var(--surface2);border:1px solid var(--border);color:var(--text)}.s-btn.sec:hover{border-color:var(--accent)}
+
+/* SESSIONS LIST */
+.sess-item{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:4px;cursor:pointer;border:1px solid var(--border);background:var(--surface2)}
+.sess-item:hover{border-color:var(--accent)}
+.sess-name{flex:1;font-size:12px}
+.sess-meta{font-size:10px;color:var(--muted)}
+.sess-del{border:none;background:none;color:var(--muted);cursor:pointer;font-size:14px;padding:0 4px}.sess-del:hover{color:var(--err)}
+
+/* MOCKS LIST */
+.mock-item{padding:8px;border:1px solid var(--border);border-radius:4px;background:var(--surface2);display:flex;flex-direction:column;gap:4px}
+.mock-pat{font-family:monospace;font-size:11px;color:var(--orange)}
+.mock-del{border:none;background:none;color:var(--muted);cursor:pointer;font-size:12px;align-self:flex-start;padding:0;font-family:inherit}.mock-del:hover{color:var(--err)}
 
 /* BLOCK LIST */
-.block-row{display:flex;gap:6px;align-items:center;padding:3px 0}
+.block-row{display:flex;align-items:center;gap:6px;padding:3px 0}
 .block-row span{flex:1;font-family:monospace;font-size:11px;color:var(--orange)}
-.block-rm{border:none;background:none;color:var(--muted);cursor:pointer;font-size:14px;padding:0 4px}
-.block-rm:hover{color:var(--err)}
+.block-rm{border:none;background:none;color:var(--muted);cursor:pointer;font-size:14px;padding:0 4px}.block-rm:hover{color:var(--err)}
 
-/* INTERCEPT MODAL */
-#intercept-modal .modal-box{width:600px}
-#int-url{width:100%;font-family:monospace}
+/* INTERCEPT */
 #int-headers,#int-body{font-family:monospace;font-size:11px;resize:vertical}
 
-/* SCREENSHOT MODAL */
-#screenshot-modal img{max-width:100%;border-radius:4px;border:1px solid var(--border)}
+/* SCREENSHOT */
+#screenshot-img{max-width:100%;border-radius:4px;border:1px solid var(--border)}
 
-/* EMPTY STATE */
+/* EMPTY */
 .empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--muted);gap:8px;font-size:12px}
 .empty svg{opacity:.3}
+
+/* GRAPHQL */
+.gql-badge{display:inline-block;background:rgba(214,114,86,.2);border:1px solid rgba(214,114,86,.4);color:#d67256;border-radius:3px;padding:0 4px;font-size:9px;font-weight:700;margin-left:4px;vertical-align:middle}
+.gql-tree{font-size:11px;font-family:'Cascadia Code','Consolas',monospace;line-height:1.6}
+.gql-key{color:var(--accent)}.gql-val{color:var(--yellow)}.gql-op{color:var(--green);font-weight:600}
+
+/* THROTTLE */
+.throttle-on{border-color:var(--orange)!important;color:var(--orange)!important;background:rgba(206,145,120,.1)!important}
+.throttle-badge{display:inline-block;font-size:9px;background:var(--orange);color:#1e1e1e;border-radius:3px;padding:0 4px;margin-left:3px;font-weight:700;vertical-align:middle}
+
+/* REPLAY */
+.replay-resp{font-family:'Cascadia Code','Consolas',monospace;font-size:11px;white-space:pre-wrap;word-break:break-all;max-height:240px;overflow-y:auto;padding:8px;background:var(--bg);border:1px solid var(--border);border-radius:3px}
+.replay-status{font-size:12px;font-weight:600;margin-bottom:6px}
+
+/* DIFF */
+.diff-added{color:var(--green)}.diff-removed{color:var(--err)}.diff-changed{color:var(--warn)}
+.diff-section{font-size:11px;display:flex;flex-direction:column;gap:4px}
+.diff-item{padding:5px 8px;border-radius:3px;border-left:3px solid;background:var(--surface2)}
+.diff-item.added{border-color:var(--green)}.diff-item.removed{border-color:var(--err)}.diff-item.changed{border-color:var(--warn)}
+.diff-url{font-family:monospace;font-size:10px;color:var(--muted)}
+
+/* GROUP */
+.log-group-cnt{display:inline-block;background:var(--err);color:#fff;border-radius:8px;padding:0 5px;font-size:9px;margin-left:4px;vertical-align:middle}
+.log-group-hdr{cursor:pointer;display:flex;align-items:center;gap:6px;padding:3px 8px;border-bottom:1px solid rgba(62,62,66,.3)}
+.log-group-hdr:hover{background:var(--surface2)}
+.log-group-body{padding:0 8px 0 24px}
+
+/* FIX */
+.sec-fix-btn{padding:2px 8px;border:1px solid rgba(78,201,176,.4);border-radius:3px;background:none;color:var(--green);font-size:10px;cursor:pointer;font-family:inherit;margin-left:auto;flex-shrink:0}
+.sec-fix-btn:hover{background:rgba(78,201,176,.1)}
 </style>
 </head>
 <body>
 <div id="app">
 
-  <!-- Toolbar -->
+  <!-- TOOLBAR -->
   <div id="toolbar">
     <span class="title">◈ AI Inspector</span>
     <div class="dot" id="live-dot"></div>
     <span id="tab-url">No tab selected</span>
-    <input id="global-search" placeholder="🔍 Global search...">
+    <input id="global-search" placeholder="🔍 Search all...">
+    <div class="tb-sep"></div>
     <button class="tb-btn" id="capture-btn">▶ Start</button>
-    <button class="tb-btn" id="intercept-btn" title="Intercept & modify requests">⚡ Intercept</button>
-    <button class="tb-btn danger" id="clear-btn">Clear</button>
-    <button class="tb-btn" id="dom-btn">📄 DOM</button>
-    <button class="tb-btn" id="screenshot-btn">📷 Shot</button>
+    <button class="tb-btn" id="intercept-btn" title="Intercept &amp; modify requests">⚡ Intercept</button>
+    <div class="tb-sep"></div>
+    <button class="tb-btn" id="scan-btn" title="AI auto-scan all captured data">🤖 Scan</button>
     <div class="tb-drop">
-      <button class="tb-btn" id="export-btn">⬇ Export ▾</button>
-      <div class="tb-drop-menu" id="export-menu">
-        <div class="tb-drop-item" id="export-har">Export as HAR</div>
-        <div class="tb-drop-item" id="export-json">Export as JSON</div>
+      <button class="tb-btn" id="throttle-btn" title="Simulate slow network">🐢 Throttle</button>
+      <div class="tb-drop-menu" id="throttle-menu">
+        <div class="tb-drop-item" data-preset="none">No throttle</div>
+        <div class="tb-drop-item" data-preset="slow3g">Slow 3G (400ms / 400kbps)</div>
+        <div class="tb-drop-item" data-preset="fast3g">Fast 3G (20ms / 1.5Mbps)</div>
+        <div class="tb-drop-item" data-preset="4g">4G (20ms / 4Mbps)</div>
       </div>
     </div>
-    <button class="tb-btn" id="block-btn">🚫 Block</button>
+    <div class="tb-drop">
+      <button class="tb-btn" id="tools-btn">Tools ▾</button>
+      <div class="tb-drop-menu" id="tools-menu">
+        <div class="tb-drop-item" id="tool-dom">📄 Attach DOM</div>
+        <div class="tb-drop-item" id="tool-shot">📷 Screenshot</div>
+        <div class="tb-drop-sep"></div>
+        <div class="tb-drop-item" id="tool-har">⬇ Export HAR</div>
+        <div class="tb-drop-item" id="tool-json">⬇ Export JSON</div>
+        <div class="tb-drop-sep"></div>
+        <div class="tb-drop-item" id="tool-block">🚫 URL Blocking</div>
+        <div class="tb-drop-item" id="tool-mocks">🎭 Mock Responses</div>
+        <div class="tb-drop-sep"></div>
+        <div class="tb-drop-item" id="tool-save">💾 Save Session</div>
+        <div class="tb-drop-item" id="tool-sessions">📂 Load Session</div>
+        <div class="tb-drop-sep"></div>
+        <div class="tb-drop-item" id="tool-clear">🗑 Clear All</div>
+      </div>
+    </div>
     <button class="tb-btn" id="settings-btn">⚙</button>
   </div>
 
-  <!-- Tabs -->
+  <!-- TABS -->
   <div id="tabs">
     <div class="tab active" data-tab="network">Network <span class="badge" id="net-badge" style="display:none">0</span></div>
     <div class="tab" data-tab="console">Console <span class="badge err" id="con-badge" style="display:none">0</span></div>
     <div class="tab" data-tab="websockets">WebSockets <span class="badge" id="ws-badge" style="display:none">0</span></div>
     <div class="tab" data-tab="storage">Storage</div>
     <div class="tab" data-tab="repl">JS REPL</div>
+    <div class="tab" data-tab="performance">Performance</div>
+    <div class="tab" data-tab="security">Security <span class="badge err" id="sec-badge" style="display:none">0</span></div>
     <div class="tab" data-tab="chat">AI Chat</div>
   </div>
 
-  <!-- Panels -->
+  <!-- PANELS -->
   <div id="panels">
 
     <!-- NETWORK -->
@@ -280,31 +354,21 @@ td.url-col{font-family:'Cascadia Code','Consolas',monospace;font-size:10px}
       <div class="filter-bar">
         <input class="filter-input" id="net-filter" placeholder="Filter by URL...">
         <select class="filter-select" id="method-filter">
-          <option value="">All methods</option>
-          <option>GET</option><option>POST</option><option>PUT</option>
-          <option>PATCH</option><option>DELETE</option>
+          <option value="">All methods</option><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option>
         </select>
         <select class="filter-select" id="type-filter">
-          <option value="">All types</option>
-          <option>XHR</option><option>Fetch</option><option>Document</option>
-          <option>Script</option><option>Stylesheet</option><option>Image</option>
+          <option value="">All types</option><option>XHR</option><option>Fetch</option><option>Document</option><option>Script</option><option>Stylesheet</option><option>Image</option>
         </select>
         <span class="sel-count" id="sel-count"></span>
         <button class="ask-btn" id="ask-net-btn" disabled>Ask AI ▶</button>
       </div>
       <div id="net-wrap">
-        <table id="net-table">
-          <thead>
-            <tr>
-              <th class="check-col"><input type="checkbox" id="select-all"></th>
-              <th class="method-col">Method</th>
-              <th class="status-col">Status</th>
-              <th class="type-col">Type</th>
-              <th class="size-col">Size</th>
-              <th class="time-col">Time</th>
-              <th class="url-col">URL</th>
-            </tr>
-          </thead>
+        <table>
+          <thead><tr>
+            <th class="chk"><input type="checkbox" id="select-all"></th>
+            <th class="met">Method</th><th class="sta">Status</th><th class="typ">Type</th>
+            <th class="siz">Size</th><th class="tim">Time</th><th>URL</th>
+          </tr></thead>
           <tbody id="net-tbody"></tbody>
         </table>
         <div class="empty" id="net-empty">
@@ -319,12 +383,9 @@ td.url-col{font-family:'Cascadia Code','Consolas',monospace;font-size:10px}
       <div class="filter-bar">
         <input class="filter-input" id="con-filter" placeholder="Filter messages...">
         <select class="filter-select" id="level-filter">
-          <option value="">All levels</option>
-          <option value="error">Errors</option>
-          <option value="warning">Warnings</option>
-          <option value="info">Info</option>
-          <option value="log">Log</option>
+          <option value="">All levels</option><option value="error">Errors</option><option value="warning">Warnings</option><option value="info">Info</option><option value="log">Log</option>
         </select>
+        <button class="tb-btn" id="con-group-btn" title="Group duplicate messages" style="padding:3px 8px;font-size:11px">Group</button>
         <span class="sel-count" id="con-sel-count"></span>
         <button class="ask-btn" id="ask-con-btn" disabled>Ask AI ▶</button>
       </div>
@@ -341,9 +402,7 @@ td.url-col{font-family:'Cascadia Code','Consolas',monospace;font-size:10px}
       <div class="filter-bar">
         <input class="filter-input" id="ws-filter" placeholder="Filter by URL...">
         <select class="filter-select" id="ws-dir-filter">
-          <option value="">All directions</option>
-          <option value="sent">Sent</option>
-          <option value="recv">Received</option>
+          <option value="">All</option><option value="sent">Sent</option><option value="recv">Received</option>
         </select>
         <span class="sel-count" id="ws-sel-count"></span>
         <button class="ask-btn" id="ask-ws-btn" disabled>Ask AI ▶</button>
@@ -362,9 +421,7 @@ td.url-col{font-family:'Cascadia Code','Consolas',monospace;font-size:10px}
       <div class="filter-bar">
         <input class="filter-input" id="stor-filter" placeholder="Filter keys/values...">
         <select class="filter-select" id="stor-type-filter">
-          <option value="local">localStorage</option>
-          <option value="session">sessionStorage</option>
-          <option value="cookies">Cookies</option>
+          <option value="local">localStorage</option><option value="session">sessionStorage</option><option value="cookies">Cookies</option>
         </select>
         <button class="tb-btn" id="stor-refresh-btn" style="padding:3px 10px;font-size:11px">↻ Refresh</button>
         <span class="sel-count" id="stor-sel-count"></span>
@@ -372,40 +429,61 @@ td.url-col{font-family:'Cascadia Code','Consolas',monospace;font-size:10px}
       </div>
       <div id="stor-wrap" style="flex:1;overflow-y:auto;overflow-x:auto">
         <table style="width:100%;border-collapse:collapse;table-layout:fixed">
-          <thead>
-            <tr>
-              <th style="width:28px;text-align:center;position:sticky;top:0;background:var(--surface2);padding:4px 6px;font-size:11px;color:var(--muted);border-bottom:1px solid var(--border)"><input type="checkbox" id="stor-select-all"></th>
-              <th style="width:35%;position:sticky;top:0;background:var(--surface2);padding:4px 6px;font-size:11px;color:var(--muted);border-bottom:1px solid var(--border);text-align:left">Key</th>
-              <th style="position:sticky;top:0;background:var(--surface2);padding:4px 6px;font-size:11px;color:var(--muted);border-bottom:1px solid var(--border);text-align:left">Value</th>
-            </tr>
-          </thead>
+          <thead><tr>
+            <th style="width:26px;text-align:center;position:sticky;top:0;background:var(--surface2);padding:4px 6px;font-size:11px;color:var(--muted);border-bottom:1px solid var(--border)"><input type="checkbox" id="stor-select-all"></th>
+            <th style="width:35%;position:sticky;top:0;background:var(--surface2);padding:4px 6px;font-size:11px;color:var(--muted);border-bottom:1px solid var(--border);text-align:left">Key</th>
+            <th style="position:sticky;top:0;background:var(--surface2);padding:4px 6px;font-size:11px;color:var(--muted);border-bottom:1px solid var(--border);text-align:left">Value</th>
+          </tr></thead>
           <tbody id="stor-tbody"></tbody>
         </table>
         <div class="empty" id="stor-empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg><span>Click ↻ Refresh to load storage</span></div>
       </div>
     </div>
 
-    <!-- JS REPL -->
+    <!-- REPL -->
     <div class="panel" id="panel-repl">
       <div id="repl-out"></div>
-      <div class="repl-input-row">
-        <input id="repl-input" placeholder="JavaScript expression — runs in page context (Enter to run)">
+      <div class="repl-bar">
+        <input id="repl-input" placeholder="JS expression — runs in page context (Enter)">
         <button class="repl-run" id="repl-run-btn">Run</button>
         <button class="repl-ask" id="repl-ask-btn" disabled>Ask AI</button>
       </div>
     </div>
 
+    <!-- PERFORMANCE -->
+    <div class="panel" id="panel-performance">
+      <div class="filter-bar">
+        <span style="font-size:11px;color:var(--muted)">Live stats from captured requests</span>
+        <button class="ask-btn" id="perf-scan-btn">Ask AI ▶</button>
+      </div>
+      <div id="perf-wrap">
+        <div class="perf-empty" id="perf-empty">Start capture and load a page to see performance data</div>
+      </div>
+    </div>
+
+    <!-- SECURITY -->
+    <div class="panel" id="panel-security">
+      <div class="filter-bar">
+        <span style="font-size:11px;color:var(--muted)">Automated security analysis of captured traffic</span>
+        <button class="tb-btn" id="sec-run-btn" style="padding:3px 10px;font-size:11px">↻ Run Audit</button>
+        <button class="ask-btn" id="sec-ask-btn">Ask AI ▶</button>
+      </div>
+      <div id="sec-wrap">
+        <div class="perf-empty" id="sec-empty">Run audit after capturing some requests</div>
+      </div>
+    </div>
+
     <!-- AI CHAT -->
     <div class="panel" id="panel-chat">
-      <div id="chat-context-bar" style="display:none"></div>
+      <div id="chat-ctx-bar" style="display:none"></div>
       <div id="chat-msgs">
         <div class="cmsg assistant">
           <div class="cmsg-role">AI Inspector</div>
-          <div class="cmsg-bubble">Ready. Attach context from any tab — select items and click "Ask AI" — or use the toolbar buttons (DOM, Screenshot) to attach page state. Then ask me anything.</div>
+          <div class="cmsg-bubble">Ready. Select items from any tab → Ask AI, or use 🤖 Scan to auto-analyze everything, or just ask me anything.</div>
         </div>
       </div>
       <div id="chat-input-area">
-        <textarea id="chat-prompt" rows="1" placeholder="Ask about network requests, console errors, page behavior... (Ctrl+Enter)"></textarea>
+        <textarea id="chat-prompt" rows="1" placeholder="Ask about requests, errors, behavior... (Ctrl+Enter)"></textarea>
         <button id="chat-stop" title="Stop">■</button>
         <button id="chat-send" title="Send">➤</button>
       </div>
@@ -414,91 +492,117 @@ td.url-col{font-family:'Cascadia Code','Consolas',monospace;font-size:10px}
   </div>
 </div>
 
-<!-- SETTINGS MODAL -->
+<!-- SETTINGS -->
 <div class="modal" id="settings-modal">
   <div class="modal-box">
-    <h3>AI Model Settings</h3>
-    <div class="s-field">
-      <label>API Base URL</label>
-      <input type="url" id="s-url" placeholder="http://localhost:11434/v1">
-      <span class="s-hint">Ollama: http://localhost:11434/v1 · LM Studio: http://localhost:1234/v1</span>
-    </div>
+    <h3>⚙ Model Settings</h3>
+    <div class="s-field"><label>API Base URL</label><input type="url" id="s-url" placeholder="http://localhost:11434/v1"><span class="s-hint">Ollama: :11434/v1 · LM Studio: :1234/v1</span></div>
     <div class="s-row">
-      <div class="s-field">
-        <label>Model</label>
-        <input type="text" id="s-model" placeholder="qwen2.5-coder:14b">
-      </div>
-      <div class="s-field">
-        <label>API Key (optional)</label>
-        <input type="password" id="s-key" placeholder="blank for local">
-      </div>
+      <div class="s-field"><label>Model</label><input type="text" id="s-model" placeholder="qwen2.5-coder:14b"></div>
+      <div class="s-field"><label>API Key</label><input type="password" id="s-key" placeholder="blank for local"></div>
     </div>
-    <div class="s-field">
-      <label>System Prompt</label>
-      <textarea id="s-sysprompt" rows="3" style="resize:vertical">You are an AI assistant integrated into a browser dev tool. You help developers understand network requests, console errors, and page behavior. Be concise, technical, and precise.</textarea>
-    </div>
+    <div class="s-field"><label>System Prompt</label><textarea id="s-sysprompt" rows="3" style="resize:vertical">You are an AI assistant integrated into a browser dev tool. Help developers understand network requests, console errors, security issues, and page behavior. Be concise, technical, and precise.</textarea></div>
     <div class="s-hint" id="s-nb-hint" style="color:#4ec9b0"></div>
-    <div class="s-actions">
-      <button class="s-btn sec" id="s-cancel">Cancel</button>
-      <button class="s-btn primary" id="s-save">Save</button>
-    </div>
+    <div class="s-actions"><button class="s-btn sec" id="s-cancel">Cancel</button><button class="s-btn primary" id="s-save">Save</button></div>
   </div>
 </div>
 
-<!-- BLOCK MODAL -->
+<!-- SESSIONS -->
+<div class="modal" id="sessions-modal">
+  <div class="modal-box">
+    <h3>📂 Saved Sessions</h3>
+    <div id="sessions-list" style="display:flex;flex-direction:column;gap:6px;max-height:300px;overflow-y:auto"></div>
+    <div class="s-hint" id="sessions-hint">Sessions are saved locally in this browser.</div>
+    <div class="s-actions"><button class="s-btn sec" id="sessions-close">Close</button></div>
+  </div>
+</div>
+
+<!-- MOCKS -->
+<div class="modal" id="mocks-modal">
+  <div class="modal-box" style="width:560px">
+    <h3>🎭 Mock Responses</h3>
+    <p class="s-hint">Intercept matching requests and return fake responses. Requires capture to be active.</p>
+    <div class="s-field">
+      <label>URL Pattern (regex or substring)</label>
+      <input type="text" id="mock-pattern" placeholder="/api/users or .*\.json$">
+    </div>
+    <div class="s-row">
+      <div class="s-field"><label>Status</label><input type="number" id="mock-status" value="200" style="width:80px"></div>
+      <div class="s-field"><label>Content-Type</label><input type="text" id="mock-ctype" value="application/json"></div>
+    </div>
+    <div class="s-field"><label>Response Body</label><textarea id="mock-body" rows="5" style="resize:vertical;font-family:monospace;font-size:11px" placeholder='{"mocked": true}'></textarea></div>
+    <div class="s-actions" style="justify-content:space-between">
+      <button class="s-btn primary" id="mock-add-btn">+ Add Rule</button>
+      <button class="s-btn sec" id="mock-cancel">Close</button>
+    </div>
+    <div id="mock-list" style="display:flex;flex-direction:column;gap:6px;max-height:200px;overflow-y:auto"></div>
+    <div class="s-actions"><button class="s-btn primary" id="mock-apply-btn">Apply to Tab</button></div>
+  </div>
+</div>
+
+<!-- BLOCK -->
 <div class="modal" id="block-modal">
   <div class="modal-box">
     <h3>🚫 URL Blocking</h3>
-    <p class="s-hint">Block URL patterns from loading. Supports wildcards: <code>*google-analytics*</code></p>
-    <div class="s-field">
-      <label>Add pattern</label>
-      <div style="display:flex;gap:6px">
-        <input type="text" id="block-input" placeholder="*analytics*" style="flex:1">
-        <button class="s-btn primary" id="block-add-btn">Add</button>
-      </div>
+    <p class="s-hint">Block URL patterns from loading. Supports wildcards: <code>*analytics*</code></p>
+    <div class="s-field"><label>Add Pattern</label>
+      <div style="display:flex;gap:6px"><input type="text" id="block-input" placeholder="*google-analytics*" style="flex:1"><button class="s-btn primary" id="block-add-btn">Add</button></div>
     </div>
-    <div id="block-list" style="display:flex;flex-direction:column;gap:2px;max-height:180px;overflow-y:auto"></div>
-    <div class="s-actions">
-      <button class="s-btn sec" id="block-cancel">Close</button>
-      <button class="s-btn primary" id="block-apply">Apply</button>
-    </div>
+    <div id="block-list" style="display:flex;flex-direction:column;gap:2px;max-height:160px;overflow-y:auto"></div>
+    <div class="s-actions"><button class="s-btn sec" id="block-cancel">Close</button><button class="s-btn primary" id="block-apply">Apply</button></div>
   </div>
 </div>
 
-<!-- INTERCEPT MODAL -->
+<!-- INTERCEPT -->
 <div class="modal" id="intercept-modal">
-  <div class="modal-box" id="intercept-modal">
+  <div class="modal-box" style="width:580px">
     <h3>⚡ Intercepted Request</h3>
-    <div class="s-field">
-      <label>URL</label>
-      <input type="text" id="int-url">
+    <div class="s-field"><label>URL</label><input type="text" id="int-url" style="font-family:monospace"></div>
+    <div class="s-field"><label>Request Headers (JSON)</label><textarea id="int-headers" rows="4"></textarea></div>
+    <div class="s-field"><label>Body</label><textarea id="int-body" rows="4"></textarea></div>
+    <div class="s-actions"><button class="s-btn danger" id="int-block">Block</button><button class="s-btn sec" id="int-resume">Resume</button><button class="s-btn primary" id="int-modify">Modify &amp; Resume</button></div>
+  </div>
+</div>
+
+<!-- SCREENSHOT -->
+<div class="modal" id="screenshot-modal">
+  <div class="modal-box" style="width:780px;align-items:center">
+    <h3>📷 Screenshot</h3>
+    <img id="screenshot-img" src="" alt="screenshot">
+    <div class="s-actions"><button class="s-btn sec" id="screenshot-close">Close</button><button class="s-btn primary" id="screenshot-attach">Attach to AI Chat</button><a class="s-btn sec" id="screenshot-dl" download="screenshot.png">Download</a></div>
+  </div>
+</div>
+
+<!-- REPLAY -->
+<div class="modal" id="replay-modal">
+  <div class="modal-box" style="width:620px">
+    <h3>↺ Replay Request</h3>
+    <div class="s-field"><label>URL</label><input type="text" id="rp-url" style="font-family:monospace;font-size:11px"></div>
+    <div class="s-field"><label>Method</label>
+      <select id="rp-method">
+        <option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option><option>HEAD</option><option>OPTIONS</option>
+      </select>
     </div>
-    <div class="s-field">
-      <label>Request Headers (JSON)</label>
-      <textarea id="int-headers" rows="4" style="resize:vertical;font-family:monospace;font-size:11px"></textarea>
-    </div>
-    <div class="s-field">
-      <label>Body</label>
-      <textarea id="int-body" rows="4" style="resize:vertical;font-family:monospace;font-size:11px"></textarea>
-    </div>
-    <div class="s-actions">
-      <button class="s-btn danger" id="int-block">Block</button>
-      <button class="s-btn sec" id="int-resume">Resume (unchanged)</button>
-      <button class="s-btn primary" id="int-modify">Modify &amp; Resume</button>
+    <div class="s-field"><label>Headers (JSON)</label><textarea id="rp-headers" rows="4" style="resize:vertical;font-family:monospace;font-size:11px"></textarea></div>
+    <div class="s-field"><label>Body</label><textarea id="rp-body" rows="3" style="resize:vertical;font-family:monospace;font-size:11px"></textarea></div>
+    <div class="s-actions"><button class="s-btn sec" id="rp-close">Cancel</button><button class="s-btn primary" id="rp-send">Send ↺</button></div>
+    <div id="rp-result" style="display:none">
+      <div class="s-field"><label>Response</label>
+        <div class="replay-status" id="rp-status"></div>
+        <div class="replay-resp" id="rp-body-out"></div>
+      </div>
+      <div class="s-actions"><button class="s-btn sec" id="rp-attach">Attach to AI Chat</button></div>
     </div>
   </div>
 </div>
 
-<!-- SCREENSHOT MODAL -->
-<div class="modal" id="screenshot-modal">
-  <div class="modal-box" style="width:800px;align-items:center">
-    <h3>📷 Page Screenshot</h3>
-    <img id="screenshot-img" src="" alt="screenshot">
-    <div class="s-actions">
-      <button class="s-btn sec" id="screenshot-close">Close</button>
-      <button class="s-btn primary" id="screenshot-attach">Attach to AI Chat</button>
-      <a class="s-btn sec" id="screenshot-dl" download="screenshot.png">Download</a>
-    </div>
+<!-- SESSION DIFF -->
+<div class="modal" id="diff-modal">
+  <div class="modal-box" style="width:640px">
+    <h3>⇄ Session Diff</h3>
+    <p class="s-hint" id="diff-label"></p>
+    <div id="diff-content" style="display:flex;flex-direction:column;gap:8px;max-height:420px;overflow-y:auto"></div>
+    <div class="s-actions"><button class="s-btn sec" id="diff-close">Close</button></div>
   </div>
 </div>
 
