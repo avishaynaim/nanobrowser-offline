@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>AI Inspector</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#1e1e1e;--surface:#252526;--surface2:#2d2d30;--surface3:#3e3e42;
+  --border:#3e3e42;--text:#cccccc;--muted:#858585;--accent:#569cd6;
+  --green:#4ec9b0;--red:#f48771;--yellow:#dcdcaa;--orange:#ce9178;
+  --err:#f44747;--warn:#ff8c00;--info:#569cd6;--log:#cccccc;
+  --scrollbar:#424242;
+}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;font-size:12px;overflow:hidden}
+#app{display:flex;flex-direction:column;height:100vh}
+
+/* TOOLBAR */
+#toolbar{display:flex;align-items:center;gap:6px;padding:6px 10px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap}
+#toolbar .title{font-size:13px;font-weight:600;color:var(--accent);margin-right:4px}
+#tab-url{font-size:11px;color:var(--muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tb-btn{padding:3px 10px;border-radius:3px;border:1px solid var(--border);background:var(--surface2);color:var(--text);cursor:pointer;font-size:11px;transition:all .15s}
+.tb-btn:hover{border-color:var(--accent);color:var(--accent)}
+.tb-btn.danger:hover{border-color:var(--err);color:var(--err)}
+#capture-btn.on{border-color:var(--err);color:var(--err)}
+#capture-btn.on:hover{background:rgba(244,71,71,.1)}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--muted);flex-shrink:0}
+.dot.live{background:var(--err);animation:pulse 1.5s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* TABS */
+#tabs{display:flex;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0}
+.tab{padding:6px 16px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;font-size:12px;user-select:none;transition:all .15s;position:relative}
+.tab:hover{color:var(--text)}
+.tab.active{color:var(--text);border-bottom-color:var(--accent)}
+.tab .badge{background:var(--accent);color:#fff;border-radius:8px;padding:0 5px;font-size:9px;margin-left:4px;vertical-align:middle}
+.tab .badge.err{background:var(--err)}
+
+/* PANELS */
+#panels{flex:1;overflow:hidden;display:flex;flex-direction:column}
+.panel{display:none;flex:1;overflow:hidden;flex-direction:column}
+.panel.active{display:flex}
+
+/* FILTER BAR */
+.filter-bar{display:flex;align-items:center;gap:6px;padding:4px 8px;background:var(--surface2);border-bottom:1px solid var(--border);flex-shrink:0}
+.filter-input{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:3px;color:var(--text);padding:3px 8px;font-size:11px;outline:none}
+.filter-input:focus{border-color:var(--accent)}
+.filter-select{background:var(--surface);border:1px solid var(--border);border-radius:3px;color:var(--text);padding:3px 6px;font-size:11px;outline:none;cursor:pointer}
+.sel-count{font-size:11px;color:var(--muted);white-space:nowrap}
+.ask-btn{padding:3px 10px;background:var(--accent);color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:11px;white-space:nowrap}
+.ask-btn:hover{opacity:.85}
+.ask-btn:disabled{opacity:.4;cursor:not-allowed}
+
+/* NETWORK TABLE */
+#net-wrap{flex:1;overflow-y:auto;overflow-x:auto}
+#net-wrap::-webkit-scrollbar{width:8px;height:8px}
+#net-wrap::-webkit-scrollbar-thumb{background:var(--scrollbar);border-radius:4px}
+#net-wrap::-webkit-scrollbar-track{background:var(--bg)}
+table{width:100%;border-collapse:collapse;table-layout:fixed}
+thead th{position:sticky;top:0;background:var(--surface2);padding:4px 6px;text-align:left;font-weight:600;font-size:11px;color:var(--muted);border-bottom:1px solid var(--border);cursor:pointer;user-select:none;white-space:nowrap}
+thead th:hover{color:var(--text)}
+th.check-col,td.check-col{width:28px;text-align:center}
+th.method-col{width:52px}
+th.status-col{width:44px}
+th.type-col{width:60px}
+th.size-col{width:56px}
+th.url-col{min-width:200px}
+tbody tr{border-bottom:1px solid rgba(62,62,66,.4);cursor:pointer}
+tbody tr:hover{background:var(--surface2)}
+tbody tr.selected{background:rgba(86,156,214,.1)}
+tbody tr.expanded{background:rgba(86,156,214,.05)}
+td{padding:3px 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px}
+td.url-col{font-family:'Cascadia Code','Consolas',monospace;font-size:10px}
+.status-2{color:var(--green)}
+.status-3{color:var(--accent)}
+.status-4{color:var(--orange)}
+.status-5{color:var(--err)}
+.status-err{color:var(--err);font-style:italic}
+.method-get{color:var(--green)}
+.method-post{color:var(--accent)}
+.method-put{color:var(--yellow)}
+.method-delete{color:var(--err)}
+.method-patch{color:var(--orange)}
+
+/* DETAIL PANE */
+.detail-row td{padding:0}
+.detail-pane{background:var(--bg);border-top:1px solid var(--border);padding:8px}
+.detail-tabs{display:flex;gap:2px;margin-bottom:8px}
+.d-tab{padding:2px 10px;border-radius:3px;cursor:pointer;color:var(--muted);font-size:11px}
+.d-tab:hover{color:var(--text)}
+.d-tab.active{background:var(--surface2);color:var(--text)}
+.detail-content{font-family:'Cascadia Code','Consolas',monospace;font-size:11px;color:var(--text);white-space:pre-wrap;word-break:break-all;max-height:240px;overflow-y:auto;padding:6px;background:var(--surface2);border-radius:3px;border:1px solid var(--border)}
+.detail-content::-webkit-scrollbar{width:6px}
+.detail-content::-webkit-scrollbar-thumb{background:var(--scrollbar);border-radius:3px}
+
+/* CONSOLE */
+#con-list{flex:1;overflow-y:auto;font-family:'Cascadia Code','Consolas',monospace;font-size:11px}
+#con-list::-webkit-scrollbar{width:8px}
+#con-list::-webkit-scrollbar-thumb{background:var(--scrollbar);border-radius:4px}
+.log-entry{display:flex;gap:8px;padding:3px 8px;border-bottom:1px solid rgba(62,62,66,.3);align-items:flex-start}
+.log-entry:hover{background:var(--surface2)}
+.log-entry.error{background:rgba(244,71,71,.08);border-left:2px solid var(--err)}
+.log-entry.warning{background:rgba(255,140,0,.06);border-left:2px solid var(--warn)}
+.log-icon{font-size:12px;flex-shrink:0;margin-top:1px}
+.log-text{flex:1;white-space:pre-wrap;word-break:break-all;color:var(--text)}
+.log-src{font-size:10px;color:var(--muted);flex-shrink:0;align-self:center}
+.log-entry.error .log-text{color:var(--err)}
+.log-entry.warning .log-text{color:var(--warn)}
+.log-entry.info .log-text{color:var(--info)}
+
+/* AI CHAT */
+#chat-panel{display:none;flex:1;overflow:hidden;flex-direction:column}
+#chat-panel.active{display:flex}
+#chat-context-bar{display:flex;align-items:center;gap:6px;padding:5px 10px;background:var(--surface2);border-bottom:1px solid var(--border);flex-wrap:wrap;flex-shrink:0}
+.ctx-chip{display:flex;align-items:center;gap:3px;padding:2px 8px;border-radius:10px;border:1px solid rgba(86,156,214,.4);background:rgba(86,156,214,.1);color:var(--accent);font-size:10px}
+.ctx-chip .rm{cursor:pointer;opacity:.6;margin-left:2px}
+.ctx-chip .rm:hover{opacity:1}
+#chat-msgs{flex:1;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:8px}
+#chat-msgs::-webkit-scrollbar{width:6px}
+#chat-msgs::-webkit-scrollbar-thumb{background:var(--scrollbar);border-radius:3px}
+.cmsg{display:flex;flex-direction:column;gap:3px}
+.cmsg.user{align-items:flex-end}
+.cmsg.assistant{align-items:flex-start;width:100%}
+.cmsg-role{font-size:10px;color:var(--muted);padding:0 4px}
+.cmsg-bubble{padding:8px 10px;border-radius:6px;max-width:90%;word-break:break-word;white-space:pre-wrap;line-height:1.5}
+.cmsg.user .cmsg-bubble{background:#1a2740;border:1px solid rgba(86,156,214,.3);border-bottom-right-radius:2px;font-size:12px}
+.cmsg.assistant .cmsg-bubble{background:var(--surface);border:1px solid var(--border);border-bottom-left-radius:2px;width:100%;font-size:12px}
+.code-block{background:var(--bg);border:1px solid var(--border);border-radius:4px;margin:4px 0;overflow:hidden}
+.code-hdr{display:flex;justify-content:space-between;padding:2px 8px;background:var(--surface2);font-size:10px;color:var(--muted)}
+.code-cp{cursor:pointer;border:none;background:none;color:var(--muted);font-size:10px}
+.code-cp:hover{color:var(--text)}
+.code-block pre{padding:8px;overflow-x:auto;font-family:'Cascadia Code','Consolas',monospace;font-size:11px;color:var(--text);margin:0;white-space:pre}
+.typing-dots{display:flex;gap:3px;padding:8px}
+.typing-dots span{width:5px;height:5px;background:var(--accent);border-radius:50%;animation:tdot 1.2s infinite}
+.typing-dots span:nth-child(2){animation-delay:.2s}
+.typing-dots span:nth-child(3){animation-delay:.4s}
+@keyframes tdot{0%,80%,100%{transform:translateY(0);opacity:.4}40%{transform:translateY(-4px);opacity:1}}
+#chat-input-area{border-top:1px solid var(--border);padding:8px;background:var(--surface);display:flex;gap:6px;align-items:flex-end;flex-shrink:0}
+#chat-prompt{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;resize:none;outline:none;min-height:36px;max-height:120px;font-family:inherit}
+#chat-prompt:focus{border-color:var(--accent)}
+#chat-prompt::placeholder{color:var(--muted)}
+#chat-send{width:32px;height:32px;background:var(--accent);border:none;border-radius:4px;cursor:pointer;color:#fff;font-size:14px;flex-shrink:0}
+#chat-send:disabled{opacity:.4;cursor:not-allowed}
+#chat-stop{width:32px;height:32px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;cursor:pointer;color:var(--err);font-size:12px;display:none;flex-shrink:0}
+#chat-stop.vis{display:flex;align-items:center;justify-content:center}
+
+/* SETTINGS MODAL */
+#settings-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;align-items:center;justify-content:center}
+#settings-modal.open{display:flex}
+#settings-box{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:20px;width:440px;max-width:95vw;display:flex;flex-direction:column;gap:12px}
+#settings-box h3{font-size:14px;font-weight:600;color:var(--text)}
+.s-field{display:flex;flex-direction:column;gap:4px}
+.s-field label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.s-field input,.s-field select,.s-field textarea{background:var(--surface2);border:1px solid var(--border);border-radius:3px;color:var(--text);padding:6px 8px;font-size:12px;outline:none;font-family:inherit}
+.s-field input:focus,.s-field select:focus{border-color:var(--accent)}
+.s-hint{font-size:10px;color:var(--muted)}
+.s-row{display:flex;gap:8px}
+.s-row .s-field{flex:1}
+.s-actions{display:flex;gap:8px;justify-content:flex-end}
+.s-btn{padding:6px 16px;border-radius:3px;border:none;font-size:12px;cursor:pointer;font-family:inherit}
+.s-btn.primary{background:var(--accent);color:#fff}
+.s-btn.primary:hover{opacity:.85}
+.s-btn.sec{background:var(--surface2);border:1px solid var(--border);color:var(--text)}
+.s-btn.sec:hover{border-color:var(--accent)}
+
+/* EMPTY STATE */
+.empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--muted);gap:8px;font-size:12px}
+.empty svg{opacity:.3}
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- Toolbar -->
+  <div id="toolbar">
+    <span class="title">◈ AI Inspector</span>
+    <div class="dot" id="live-dot"></div>
+    <span id="tab-url">No tab selected</span>
+    <button class="tb-btn" id="capture-btn">▶ Start Capture</button>
+    <button class="tb-btn danger" id="clear-btn">Clear</button>
+    <button class="tb-btn" id="dom-btn" title="Capture current DOM and attach to AI context">📄 Attach DOM</button>
+    <button class="tb-btn" id="settings-btn">⚙ Model</button>
+  </div>
+
+  <!-- Tabs -->
+  <div id="tabs">
+    <div class="tab active" data-tab="network">Network <span class="badge" id="net-badge" style="display:none">0</span></div>
+    <div class="tab" data-tab="console">Console <span class="badge err" id="con-badge" style="display:none">0</span></div>
+    <div class="tab" data-tab="chat">AI Chat</div>
+  </div>
+
+  <!-- Panels -->
+  <div id="panels">
+
+    <!-- NETWORK PANEL -->
+    <div class="panel active" id="panel-network">
+      <div class="filter-bar">
+        <input class="filter-input" id="net-filter" placeholder="Filter by URL...">
+        <select class="filter-select" id="method-filter">
+          <option value="">All methods</option>
+          <option>GET</option><option>POST</option><option>PUT</option>
+          <option>PATCH</option><option>DELETE</option>
+        </select>
+        <select class="filter-select" id="type-filter">
+          <option value="">All types</option>
+          <option>XHR</option><option>Fetch</option><option>Document</option>
+          <option>Script</option><option>Stylesheet</option><option>Image</option>
+        </select>
+        <span class="sel-count" id="sel-count"></span>
+        <button class="ask-btn" id="ask-net-btn" disabled>Ask AI ▶</button>
+      </div>
+      <div id="net-wrap">
+        <table id="net-table">
+          <thead>
+            <tr>
+              <th class="check-col"><input type="checkbox" id="select-all"></th>
+              <th class="method-col">Method</th>
+              <th class="status-col">Status</th>
+              <th class="type-col">Type</th>
+              <th class="size-col">Size</th>
+              <th class="url-col">URL</th>
+            </tr>
+          </thead>
+          <tbody id="net-tbody"></tbody>
+        </table>
+        <div class="empty" id="net-empty">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span>Start capture to see network requests</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- CONSOLE PANEL -->
+    <div class="panel" id="panel-console">
+      <div class="filter-bar">
+        <input class="filter-input" id="con-filter" placeholder="Filter messages...">
+        <select class="filter-select" id="level-filter">
+          <option value="">All levels</option>
+          <option value="error">Errors</option>
+          <option value="warning">Warnings</option>
+          <option value="info">Info</option>
+          <option value="log">Log</option>
+        </select>
+        <span class="sel-count" id="con-sel-count"></span>
+        <button class="ask-btn" id="ask-con-btn" disabled>Ask AI ▶</button>
+      </div>
+      <div id="con-list">
+        <div class="empty" id="con-empty">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+          <span>Start capture to see console output</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- AI CHAT PANEL -->
+    <div class="panel" id="panel-chat">
+      <div id="chat-context-bar" style="display:none"></div>
+      <div id="chat-msgs">
+        <div class="cmsg assistant">
+          <div class="cmsg-role">AI Inspector</div>
+          <div class="cmsg-bubble">Ready. Attach context using the Network or Console tabs — select items and click "Ask AI" — or just ask me anything about the page.</div>
+        </div>
+      </div>
+      <div id="chat-input-area">
+        <textarea id="chat-prompt" rows="1" placeholder="Ask about the network requests, console errors, page behavior... (Ctrl+Enter)"></textarea>
+        <button id="chat-stop" title="Stop">■</button>
+        <button id="chat-send" title="Send">➤</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Settings Modal -->
+<div id="settings-modal">
+  <div id="settings-box">
+    <h3>AI Model Settings</h3>
+    <div class="s-field">
+      <label>API Base URL</label>
+      <input type="url" id="s-url" placeholder="http://localhost:11434/v1">
+      <span class="s-hint">Ollama: http://localhost:11434/v1 · LM Studio: http://localhost:1234/v1</span>
+    </div>
+    <div class="s-row">
+      <div class="s-field">
+        <label>Model</label>
+        <input type="text" id="s-model" placeholder="qwen2.5-coder:14b">
+      </div>
+      <div class="s-field">
+        <label>API Key (optional)</label>
+        <input type="password" id="s-key" placeholder="blank for local">
+      </div>
+    </div>
+    <div class="s-field">
+      <label>System Prompt</label>
+      <textarea id="s-sysprompt" rows="3" style="resize:vertical">You are an AI assistant integrated into a browser dev tool. You help developers understand network requests, console errors, and page behavior. Be concise, technical, and precise.</textarea>
+    </div>
+    <div class="s-hint" id="s-nb-hint" style="color:#4ec9b0"></div>
+    <div class="s-actions">
+      <button class="s-btn sec" id="s-cancel">Cancel</button>
+      <button class="s-btn primary" id="s-save">Save</button>
+    </div>
+  </div>
+</div>
+
+<script src="inspector.js"></script>
+</body>
+</html>
