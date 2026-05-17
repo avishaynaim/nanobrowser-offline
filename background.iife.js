@@ -100716,7 +100716,7 @@ ${sourceUrlComment}
 
   function getStore(tabId) {
     if (!captureStore.has(tabId)) {
-      captureStore.set(tabId, { requests: new Map(), console: [], attached: false, ws: new Map() });
+      captureStore.set(tabId, { requests: new Map(), console: [], attached: false, ws: new Map(), blockedUrls: [], interceptPort: null });
     }
     return captureStore.get(tabId);
   }
@@ -100772,10 +100772,13 @@ ${sourceUrlComment}
         requestHeaders: params.request.headers,
         requestBody: params.request.postData || null,
         ts: Date.now(),
+        doneAt: null,
+        ttfb: null,
         status: null,
         statusText: null,
         responseHeaders: null,
         responseBody: null,
+        mimeType: null,
         size: null,
         error: null,
         done: false,
@@ -100789,6 +100792,7 @@ ${sourceUrlComment}
         e.statusText = params.response.statusText;
         e.responseHeaders = params.response.headers;
         e.mimeType = params.response.mimeType;
+        if (params.response.timing?.receiveHeadersEnd > 0) e.ttfb = Math.round(params.response.timing.receiveHeadersEnd);
       }
     }
 
@@ -100797,6 +100801,7 @@ ${sourceUrlComment}
       if (e) {
         e.size = params.encodedDataLength;
         e.done = true;
+        e.doneAt = Date.now();
         try {
           const r = await chrome.debugger.sendCommand(
             { tabId }, 'Network.getResponseBody', { requestId: params.requestId }
@@ -100816,6 +100821,16 @@ ${sourceUrlComment}
       const m = params.message;
       store.console.push({ level: m.level, text: m.text, url: m.url, line: m.line, ts: Date.now() });
       if (store.console.length > MAX_LOG) store.console.splice(0, store.console.length - MAX_LOG);
+    }
+
+    else if (method === 'Fetch.requestPaused') {
+      const port = store?.interceptPort;
+      if (port) {
+        try { port.postMessage({ type: 'PAUSED', requestId: params.requestId, request: params.request, resourceType: params.resourceType }); }
+        catch { chrome.debugger.sendCommand({ tabId }, 'Fetch.continueRequest', { requestId: params.requestId }).catch(() => {}); }
+      } else {
+        chrome.debugger.sendCommand({ tabId }, 'Fetch.continueRequest', { requestId: params.requestId }).catch(() => {});
+      }
     }
 
     else if (method === 'Network.webSocketCreated') {
@@ -100900,6 +100915,38 @@ ${sourceUrlComment}
           } catch (e) {
             reply({ ok: false, error: e.message });
           }
+          break;
+        }
+        case 'INS_SCREENSHOT': {
+          try {
+            const r = await chrome.debugger.sendCommand({ tabId }, 'Page.captureScreenshot', { format: 'png' });
+            reply({ ok: true, data: r.data });
+          } catch (e) { reply({ ok: false, error: e.message }); }
+          break;
+        }
+        case 'INS_REPL': {
+          try {
+            const results = await chrome.scripting.executeScript({
+              target: { tabId }, world: 'MAIN',
+              func: code => { try { return { ok: true, result: String(eval(code)), type: typeof eval(code) }; } catch(e) { return { ok: false, error: e.message }; } },
+              args: [msg.code],
+            });
+            reply(results?.[0]?.result || { ok: false, error: 'No result' });
+          } catch (e) { reply({ ok: false, error: e.message }); }
+          break;
+        }
+        case 'INS_BLOCK': {
+          const store = getStore(tabId);
+          store.blockedUrls = msg.patterns || [];
+          try {
+            await chrome.debugger.sendCommand({ tabId }, 'Network.setBlockedURLs', { urls: store.blockedUrls });
+            reply({ ok: true });
+          } catch (e) { reply({ ok: false, error: e.message }); }
+          break;
+        }
+        case 'INS_GET_BLOCK': {
+          const store = captureStore.get(tabId);
+          reply({ patterns: store?.blockedUrls || [] });
           break;
         }
         case 'INS_DOM': {
@@ -100991,5 +101038,45 @@ chrome.runtime.onConnect.addListener(port => {
 
   port.onDisconnect.addListener(() => {
     if (abortCtrl) abortCtrl.abort();
+  });
+});
+
+// Inspector intercept port handler
+chrome.runtime.onConnect.addListener(port => {
+  if (port.name !== 'inspector-intercept') return;
+  let tabId = null;
+
+  port.onMessage.addListener(async msg => {
+    if (msg.type === 'INIT') {
+      tabId = msg.tabId;
+      const store = getStore(tabId);
+      store.interceptPort = port;
+      try {
+        await chrome.debugger.sendCommand({ tabId }, 'Fetch.enable', { patterns: [{ requestStage: 'Request' }] });
+        port.postMessage({ type: 'READY' });
+      } catch (e) {
+        store.interceptPort = null;
+        port.postMessage({ type: 'ERROR', error: e.message });
+      }
+    } else if (msg.type === 'RESUME') {
+      chrome.debugger.sendCommand({ tabId }, 'Fetch.continueRequest', { requestId: msg.requestId }).catch(() => {});
+    } else if (msg.type === 'MODIFY') {
+      chrome.debugger.sendCommand({ tabId }, 'Fetch.continueRequest', {
+        requestId: msg.requestId,
+        url: msg.url,
+        headers: msg.headers ? Object.entries(msg.headers).map(([n,v]) => ({name:n,value:v})) : undefined,
+        postData: msg.postData || undefined,
+      }).catch(() => {});
+    } else if (msg.type === 'BLOCK') {
+      chrome.debugger.sendCommand({ tabId }, 'Fetch.failRequest', { requestId: msg.requestId, errorReason: 'BlockedByClient' }).catch(() => {});
+    }
+  });
+
+  port.onDisconnect.addListener(() => {
+    if (tabId) {
+      const store = captureStore.get(tabId);
+      if (store) store.interceptPort = null;
+      chrome.debugger.sendCommand({ tabId }, 'Fetch.disable').catch(() => {});
+    }
   });
 });
