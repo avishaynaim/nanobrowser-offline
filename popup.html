@@ -46,27 +46,34 @@
 </head>
 <body>
   <h3>◈ Nanobrowser (Local AI)</h3>
-  <p>AI web automation powered by your local model.</p>
+  <p>AI web automation + network/console inspector powered by your local model.</p>
 
-  <button class="btn" id="open-panel">Open Side Panel</button>
-  <a class="btn btn-outline" id="open-options">Settings / Add Model</a>
+  <button class="btn" id="open-panel">🤖 Open Automation (Side Panel)</button>
+  <button class="btn" id="open-inspector" style="background:#2a7a5a">🔍 Open Network Inspector</button>
+  <a class="btn btn-outline" id="open-options">⚙ Settings / Add Model</a>
 
   <div class="note">
-    Side panel requires Chrome/Edge 114+.<br>
-    Use Settings to configure your local OpenAI-compatible endpoint.
+    Automation side panel: Edge/Chrome 114+.<br>
+    Inspector: reads network requests, API responses &amp; console — ask AI about them.
   </div>
 
   <script>
     document.getElementById('open-panel').addEventListener('click', () => {
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         if (chrome.sidePanel?.open) {
-          chrome.sidePanel.open({ tabId: tabs[0].id }).catch(() => {
-            // Fallback: open options if sidePanel not supported
-            chrome.runtime.openOptionsPage();
-          });
+          chrome.sidePanel.open({ tabId: tabs[0].id }).catch(() => chrome.runtime.openOptionsPage());
         } else {
           chrome.runtime.openOptionsPage();
         }
+        window.close();
+      });
+    });
+
+    document.getElementById('open-inspector').addEventListener('click', () => {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        const tabId = tabs[0]?.id;
+        const url = chrome.runtime.getURL('inspector.html') + (tabId ? '?tabId=' + tabId : '');
+        chrome.tabs.create({ url });
         window.close();
       });
     });
