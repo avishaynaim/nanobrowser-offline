@@ -19,6 +19,7 @@ let editingCookie = null;
 let baselineSession = null, networkPaused = false;
 let alertRules = [], budgetRules = {}, filterPresets = [], annotations = {}, requestTags = {};
 let historyData = [], dedupMode = false, annotatingId = null;
+const alertedIds = new Set(); // tracks fired alerts so they don't repeat every poll
 let fontScale = 12, isLightTheme = false;
 const TAG_COLORS = { red:'#f44747', orange:'#ce9178', yellow:'#dcdcaa', green:'#4ec9b0', blue:'#569cd6', purple:'#c586c0', none:'' };
 let settings = {
@@ -260,6 +261,24 @@ function setupUI() {
   document.getElementById('sec-run-btn').addEventListener('click', runSecurityAudit);
   document.getElementById('sec-ask-btn').addEventListener('click', () => { const ctx = buildSecContext(); if (ctx) { chatContext.push({ type: 'security', data: { text: ctx } }); renderCtxBar(); switchTab('chat'); } });
 
+  // Bug 1 fix: jt-toggle delegation (avoids inline onclick blocked by MV3 CSP)
+  document.getElementById('net-tbody').addEventListener('click', e => {
+    if (e.target.classList.contains('jt-toggle')) {
+      e.stopPropagation();
+      const el = document.getElementById(e.target.dataset.jt);
+      if (el) el.classList.toggle('collapsed');
+    }
+  });
+  // Bug 1 fix: code-cp delegation in chat panel
+  document.getElementById('chat-msgs').addEventListener('click', e => {
+    if (e.target.classList.contains('code-cp')) {
+      const code = e.target.closest('.code-block')?.querySelector('pre')?.textContent || '';
+      navigator.clipboard.writeText(code);
+      e.target.textContent = 'Copied!';
+      setTimeout(() => e.target.textContent = 'Copy', 1500);
+    }
+  });
+
   // Chat
   document.getElementById('chat-send').addEventListener('click', sendChat);
   document.getElementById('chat-stop').addEventListener('click', stopChat);
@@ -307,6 +326,7 @@ async function clearAll() {
   netRequests = []; consoleLogs = []; wsConnections = []; storageItems = [];
   selectedRequests.clear(); selectedLogs.clear(); selectedWsFrames = []; selectedStorItems.clear();
   expandedRow = null; expandedWsConn = null; lastReplResult = null;
+  alertedIds.clear();
   renderNetwork(); renderConsole(); renderWebSockets(); renderStorage();
   document.getElementById('perf-empty').style.display = ''; document.getElementById('perf-wrap').querySelectorAll(':not(#perf-empty)').forEach(e => e.remove());
   document.getElementById('sec-empty').style.display = ''; document.getElementById('sec-wrap').querySelectorAll(':not(#sec-empty)').forEach(e => e.remove());
@@ -1131,6 +1151,7 @@ function renderNetwork() {
       if (hasRedirects) tabs.push('redirects');
       const tabLabels = {'response-body':'Response','request-body':'Req Body','req-headers':'Req Headers','res-headers':'Res Headers','graphql':'GraphQL','redirects':`Redirects (${r.redirectChain?.length||0})`,'tokens':'🔑 Tokens','cache':'📦 Cache'};
       const rawContent = getDetContent(r, expandedDTab);
+      const rawText = getRaw(r, expandedDTab); // unescaped, for data-raw + search
       const isJsonResp = expandedDTab === 'response-body' && r.responseBody;
       let treeParsed = null;
       if (isJsonResp) { try { treeParsed = JSON.parse(r.responseBody); } catch {} }
@@ -1143,8 +1164,8 @@ function renderNetwork() {
           <button class="d-curl" data-annid="${esc(r.id)}" style="margin-left:2px">📝</button>
         </div>
         ${(expandedDTab==='response-body'||expandedDTab==='request-body')?`<div class="det-search"><input class="det-search-input" placeholder="Search in body..." style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:3px;color:var(--text);padding:3px 8px;font-size:11px;outline:none"><span class="det-search-cnt"></span></div>`:''}
-        ${treeParsed!==null?`<div style="padding:6px;max-height:220px;overflow-y:auto;font-size:11px">${renderJsonTree(treeParsed)}</div>`:
-          `<div class="det-c" data-raw="${esc(typeof rawContent==='string'?rawContent:'')}">${typeof rawContent==='string'?esc(rawContent):rawContent}</div>`}
+        ${treeParsed!==null?`<div style="padding:6px;max-height:220px;overflow-y:auto;font-size:11px">${renderJsonTree(treeParsed)}</div><div class="det-c" data-raw="${esc(rawText)}" style="display:none"></div>`
+          :`<div class="det-c" data-raw="${esc(rawText)}">${typeof rawContent==='string'?rawContent:rawContent}</div>`}
       </div></td></tr>`);
     }
   }
@@ -1168,6 +1189,12 @@ function renderNetwork() {
       inp.closest('.det-search').querySelector('.det-search-cnt').textContent = q ? `${(rawTxt.match(new RegExp(q,'gi'))||[]).length} match` : '';
     });
   });
+}
+// Returns raw (unescaped) text for body search — used in data-raw attribute
+function getRaw(r, tab) {
+  if (tab === 'response-body') return r.error ? ('Error: ' + r.error) : (!r.done ? '…' : (r.responseBody ? prettyJSON(r.responseBody) : '(empty)'));
+  if (tab === 'request-body') return r.requestBody ? prettyJSON(r.requestBody) : '(no body)';
+  return '';
 }
 function getDetContent(r, tab) {
   if (tab==='response-body') { if(r.error) return esc('Error: '+r.error); if(!r.done) return '…'; if(!r.responseBody) return '(empty)'; return esc(prettyJSON(r.responseBody)); }
@@ -1299,11 +1326,12 @@ function renderStorage() {
   if (!storageItems.length) { tbody.innerHTML=''; empty.style.display=''; return; }
   empty.style.display='none';
   const isCookies = storageType === 'cookies';
+  document.getElementById('stor-edit-th').style.display = isCookies ? '' : 'none';
   tbody.innerHTML = vis.map((item,i) => `<tr class="${selectedStorItems.has(i)?'sel':''}" data-idx="${i}">
     <td style="text-align:center"><input type="checkbox" data-idx="${i}" ${selectedStorItems.has(i)?'checked':''}></td>
     <td title="${esc(item.key)}">${esc(item.key)}</td>
     <td title="${esc(item.value)}">${esc(item.value.slice(0,200))}</td>
-    ${isCookies ? `<td style="width:56px;text-align:right"><button class="mock-del ck-edit-btn" data-i="${i}" style="font-size:10px;padding:1px 5px;border:1px solid var(--border);border-radius:3px;color:var(--muted)">Edit</button></td>` : ''}
+    ${isCookies ? `<td style="text-align:right"><button class="mock-del ck-edit-btn" data-i="${i}" style="font-size:10px;padding:1px 5px;border:1px solid var(--border);border-radius:3px;color:var(--muted)">Edit</button></td>` : ''}
   </tr>`).join('');
   tbody.querySelectorAll('input[data-idx]').forEach(cb => cb.addEventListener('change', e => { e.stopPropagation(); const i=parseInt(cb.dataset.idx); if(cb.checked) selectedStorItems.add(i); else selectedStorItems.delete(i); cb.closest('tr').classList.toggle('sel',cb.checked); updateStorSel(); }));
   if (isCookies) {
@@ -1424,7 +1452,7 @@ function renderBubble(el,text){el.innerHTML=renderContent(text);scrollChat();}
 function renderContent(text){
   let html='';
   for(const part of text.split(/(```[\s\S]*?```|`[^`\n]+`)/g)){
-    if(part.startsWith('```')){const m=part.match(/^```(\w*)\n?([\s\S]*?)```$/);const lang=m?.[1]||'';const code=m?.[2]||part.slice(3,-3);html+=`<div class="code-block"><div class="code-hdr"><span>${esc(lang)}</span><button class="code-cp" onclick="cpCode(this)">Copy</button></div><pre>${esc(code)}</pre></div>`;}
+    if(part.startsWith('```')){const m=part.match(/^```(\w*)\n?([\s\S]*?)```$/);const lang=m?.[1]||'';const code=m?.[2]||part.slice(3,-3);html+=`<div class="code-block"><div class="code-hdr"><span>${esc(lang)}</span><button class="code-cp">Copy</button></div><pre>${esc(code)}</pre></div>`;}
     else if(part.startsWith('`')&&part.endsWith('`')){html+=`<code style="background:var(--surface2);padding:1px 4px;border-radius:3px;font-family:monospace">${esc(part.slice(1,-1))}</code>`;}
     else{html+=esc(part).replace(/\n/g,'<br>');}
   }
@@ -1439,6 +1467,10 @@ async function toggleNetPause() {
   const r = await chrome.runtime.sendMessage({ type: 'INS_NET_PAUSE', tabId: targetTabId, pause: !networkPaused });
   if (!r.ok) { alert('Failed: ' + r.error); return; }
   networkPaused = !networkPaused;
+  // Restore throttle preset after un-pausing (pause overwrites emulateNetworkConditions)
+  if (!networkPaused && throttlePreset !== 'none') {
+    chrome.runtime.sendMessage({ type: 'INS_THROTTLE', tabId: targetTabId, preset: throttlePreset }).catch(() => {});
+  }
   const btn = document.getElementById('pause-btn');
   btn.textContent = networkPaused ? '▶ Resume' : '⏸ Pause';
   btn.classList.toggle('pause-on', networkPaused);
@@ -1509,8 +1541,12 @@ async function retryAllErrors() {
   if (!failed.length) { alert('No failed requests to retry.'); return; }
   const results = [];
   for (const r of failed.slice(0, 10)) {
-    const res = await chrome.runtime.sendMessage({ type: 'INS_REPLAY', tabId: targetTabId, url: r.url, method: r.method, headers: r.requestHeaders, body: r.requestBody });
-    results.push(`${r.method} ${shortUrl(r.url)}: ${res.ok ? res.status : 'ERR ' + res.error}`);
+    try {
+      const res = await chrome.runtime.sendMessage({ type: 'INS_REPLAY', tabId: targetTabId, url: r.url, method: r.method, headers: r.requestHeaders, body: r.requestBody });
+      results.push(`${r.method} ${shortUrl(r.url)}: ${res.ok ? res.status : 'ERR ' + res.error}`);
+    } catch (e) {
+      results.push(`${r.method} ${shortUrl(r.url)}: ERR ${e.message}`);
+    }
   }
   alert(`Retry results:\n${results.join('\n')}`);
 }
@@ -1537,11 +1573,11 @@ function renderJsonTree(data, depth) {
   if (depth > 6) return `<span class="jt-val">${isArr?'[…]':'{…}'}</span>`;
   const id = 'jt' + (++jtCounter);
   const preview = isArr ? `Array[${entries.length}]` : `Object{${entries.length}}`;
-  return `<span class="jt-toggle" data-jt="${id}" onclick="jtToggle(this)">${esc(preview)}</span><div class="jt-body" id="${id}">${
+  return `<span class="jt-toggle" data-jt="${id}">${esc(preview)}</span><div class="jt-body" id="${id}">${
     entries.map(([k, v]) => `<div class="jt-row"><span class="jt-key">${esc(String(k))}</span>: ${renderJsonTree(v, depth + 1)}</div>`).join('')
   }</div>`;
 }
-window.jtToggle = btn => { const el = document.getElementById(btn.dataset.jt); el.classList.toggle('collapsed'); };
+// jt-toggle clicks handled via delegation in setupUI (avoids MV3 CSP inline-handler block)
 
 // ── Request Deduplication ─────────────────────────────────
 // Used in renderNetwork via getDuplicates()
@@ -1620,7 +1656,8 @@ function checkAlerts() {
       if (rule.cond === 'status' && r.status !== rule.status) continue;
       if (rule.cond === 'error' && !(r.error || r.status >= 400)) continue;
       if (rule.cond === 'slow' && !(r.ttfb > 1000)) continue;
-      if (!r.__alerted) { r.__alerted = true; showToast(`🔔 Alert: ${rule.pattern} → ${r.status||'ERR'} ${shortUrl(r.url)}`, 'alert'); }
+      const aKey = rule.pattern + '|' + r.id;
+      if (!alertedIds.has(aKey)) { alertedIds.add(aKey); showToast(`🔔 Alert: ${rule.pattern} → ${r.status||'ERR'} ${shortUrl(r.url)}`, 'alert'); }
     }
   }
 }
@@ -1784,7 +1821,11 @@ async function analyzeDnsPrefetch() {
   const links = r.links || [];
   if (!links.length) { showToast('No prefetch/preconnect/preload links found.'); return; }
   const usedHosts = new Set(netRequests.map(r => { try { return new URL(r.url).host; } catch { return ''; } }));
-  chatContext.push({ type: 'repl', data: { code: 'DNS/Prefetch analysis', result: links.map(l => `[${l.rel}] ${l.href}${l.as?' ('+l.as+')':''}${usedHosts.has(new URL(l.href).host)?'  ✓ used':'  ✗ unused'}`).join('\n') } });
+  chatContext.push({ type: 'repl', data: { code: 'DNS/Prefetch analysis', result: links.map(l => {
+    let usedStr = '';
+    try { usedStr = usedHosts.has(new URL(l.href).host) ? '  ✓ used' : '  ✗ unused'; } catch {}
+    return `[${l.rel}] ${l.href}${l.as?' ('+l.as+')':''}${usedStr}`;
+  }).join('\n') } });
   renderCtxBar(); switchTab('chat');
 }
 
@@ -1864,7 +1905,7 @@ function esc(s){return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').
 function shortUrl(url){try{const u=new URL(url);return u.pathname+(u.search||'');}catch{return url;}}
 function fmtSize(b){if(!b)return'0B';if(b<1024)return b+'B';if(b<1048576)return(b/1024).toFixed(1)+'KB';return(b/1048576).toFixed(1)+'MB';}
 function prettyJSON(t){try{return JSON.stringify(JSON.parse(t),null,2);}catch{return t;}}
-window.cpCode=function(btn){const code=btn.closest('.code-block')?.querySelector('pre')?.textContent||'';navigator.clipboard.writeText(code);btn.textContent='Copied!';setTimeout(()=>btn.textContent='Copy',1500);};
+// code-cp handled via delegation in setupUI
 
 // ── Start ─────────────────────────────────────────────────
 init();
